@@ -73,9 +73,9 @@ function fetch_alert_data() {
           break;
         if (alerts[i].geometry) { // Current alert uses polygon
           for (var key in users) { // Loop through users
-            if (affects_user(users[key], alerts[i].geometry)) { // Check if they in da box
+            if (affects_user(users[key], alerts[i].geometry)) { // Check if zay in da box
               console.log("Polygon match");
-              send_alert(curAlert, key); // Yay! They're in the box, send it
+              send_alert(curAlert, key); // Yay! day in da box, send it
             }
           }
         }
@@ -85,16 +85,18 @@ function fetch_alert_data() {
               url: curAlProp.affectedZones[x],
               headers: { 'User-Agent': USER_AGENT }
             };
-            request(zoneRequestOptions, function (body) { // Get the zone
-              var zone;
-              try { zone = JSON.parse(body).geometry; } // Parse the zone
-              catch (e) { console.log("Geometry parse error"); return; }
-              for (var key in users) { // Loop through users
-                if (affects_user(users[key], zone)) { // Check if they're in the zone
-                  console.log("Zone match");
-                  send_alert(curAlert, key); // Send
+            request(zoneRequestOptions, function (error, response, body) { // Get the zone
+              if (!error && response.statusCode === 200) {
+                var zone;
+                try { zone = JSON.parse(body).geometry; } // Parse the zone
+                catch (e) { console.log("Geometry parse error"); return; }
+                for (var key in users) { // Loop through users
+                  if (affects_user(users[key], zone)) { // Check if they're in the zone
+                    console.log("Zone match");
+                    send_alert(curAlert, key); // Send
+                  }
                 }
-              }
+              } else { console.log("Zone request error: " + error); }
             })
           }
         }
@@ -102,10 +104,7 @@ function fetch_alert_data() {
       console.log("Parsed " + i + " alerts");
     }
     else if (response.statusCode === 304) { console.log("Data not modified"); }
-    else {
-      console.log("Request failed");
-      console.log(body);
-    }
+    else { console.log("Request failed: ", error); }
   })
 }
 
@@ -159,6 +158,7 @@ function parse_text(text) {
 // Take alert and firebase token, pretty it up, and send it to user
 function send_alert(alert, regToken) {
   const alProp = alert.properties;
+  console.log(alert.properties.headline);
 
   // Description
   var description = parse_text(alProp.description);
@@ -246,7 +246,7 @@ function send_message(message) {
     .then((response) => {
       // Response is a message ID string.
       console.log('Successfully sent message:', response);
-      console.log(message);
+      console.log('token:', message.token);
       return;
     })
     .catch((error) => {
