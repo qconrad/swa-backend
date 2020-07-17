@@ -215,7 +215,11 @@ function send_alert(alert, regToken) {
         color: ((alProp.messageType === "Cancel") ? "#868e96" : alertStyle[alProp.event].color),
         icon: alertStyle[alProp.event].icon,
         'channel_id': alProp.messageType,
-        'click_action': 'alertviewer'
+        'click_action': 'alertviewer',
+        // Notifications with the same tag will override any previous ones with
+        // the same tag. Use root post id as tag so subsequent updates will
+        // replace the previous one.
+        tag: (alProp.references.length > 0) ? alProp.references[alProp.references.length-1].identifier : alProp.id,
       },
       priority: "high"
     },
@@ -275,6 +279,7 @@ exports.userupdate = functions.https.onRequest((req, res) => {
     var db = admin.database();
     var userRef = db.ref("/users");
     userRef.child(keys[0]).set(reqBod[keys[0]]);
+    console.log("User sync. Token: " + keys[0]);
     res.status(200).send();
   } else {
     console.log("invalid request");
