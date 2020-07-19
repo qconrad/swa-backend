@@ -257,7 +257,7 @@ function send_message(message) {
       if (error.errorInfo.code === "messaging/registration-token-not-registered")
         delete_token_from_database(message.token);
       else
-        onsole.log('Unkown error sending message:', error);
+        console.log('Unkown error sending message:', error);
   });
 }
 
