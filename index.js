@@ -4,12 +4,16 @@ const admin = require("firebase-admin");
 const request = require('request');
 const serviceAccount = require("./serviceAccountKey.json");
 const inside = require('point-in-polygon');
+const runtimeOpts = { timeoutSeconds: 300 }
 
 // Init this stuff
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
   databaseURL: "https://severe-weather-alerts.firebaseio.com"
 });
+
+// Database object
+const db = admin.database();
 
 // Let NWS know who's making all these requests
 const USER_AGENT = '(Severe Weather Alerts, https://github.com/qconrad/severe-weather-alerts)';
@@ -20,27 +24,37 @@ var lastModified; // Time and date of newest data
 var users;        // Users pulled from database
 
 // Fetch and parse alerts every minute
-exports.alertsupdate = functions.pubsub.schedule('* * * * *')
+exports.alertsupdate = functions.runWith(runtimeOpts).pubsub.schedule('* * * * *')
   .onRun(() => {
-    pull_database();
+    get_last_sent();
     return null;
 });
 
-// This function request the entirety of the database (we need it all)
-// and then begins the entire fetch and parse process
-function pull_database() {
-  var db = admin.database();
-  var ref = db.ref("/");
+// Gets last sent information and begins the data fetch
+function get_last_sent() {
+  var ref = db.ref("/lastSent");
   ref.once("value", function(data) {
-    lastSent = data.val().lastSent;
-    lastModified = data.val().lastModified;
-    users = data.val().users;
-    fetch_alert_data();
+    lastSent = data.val();
+    ref = db.ref("/lastModified");
+    ref.once("value", function(data) {
+      lastModified = data.val();
+      fetch_data();
+    });
   });
 }
 
-// Request all alerts from NWS servers and send them to users
-function fetch_alert_data() {
+// Gets all users from database
+// Only do this when new alerts are available
+function get_users(callback) {
+  var ref = db.ref("/users");
+  ref.once("value", function(data) {
+    users = data.val();
+    callback();
+  });
+}
+
+// Request alerts from NWS servers
+function fetch_data() {
   let requestOptions = {
     url: 'https://api.weather.gov/alerts?status=actual',
     headers: { 'User-Agent': USER_AGENT, "If-Modified-Since": lastModified }
@@ -55,63 +69,66 @@ function fetch_alert_data() {
         console.log("Data not newer");
         return;
       }
-
-      // Parse alerts to json object and update last sent variables
-      var alerts;
-      try { alerts = JSON.parse(body).features; }
-      catch (e) { console.log("Parse error"); return; }
-      console.log("Last modified: " + response.headers['last-modified']);
-      console.log("xserverid: " + response.headers['x-server-id']);
-      set_last_sent(response.headers['last-modified'], alerts[0].properties.id);
-
-      // Loop through only new alerts, breaking when we get to lastSent id
-      // Look for users within the zones and notify them
-      for (var i = 0; i < alerts.length; i++) {
-        const curAlert = alerts[i];
-        const curAlProp = alerts[i].properties;
-        if (curAlProp.id === lastSent)
-          break;
-        if (alerts[i].geometry) { // Current alert uses polygon
-          for (var key in users) { // Loop through users
-            if (affects_user(users[key], alerts[i].geometry)) { // Check if zay in da box
-              console.log("Polygon match");
-              send_alert(curAlert, key); // Yay! day in da box, send it
-            }
-          }
-        }
-        else { // Current alert uses zones (usually counties) that have to be requested
-          for (var x = 0; x < curAlProp.affectedZones.length; x++) {
-            let zoneRequestOptions = {
-              url: curAlProp.affectedZones[x],
-              headers: { 'User-Agent': USER_AGENT }
-            };
-            request(zoneRequestOptions, function (error, response, body) { // Get the zone
-              if (!error && response.statusCode === 200) {
-                var zone;
-                try { zone = JSON.parse(body).geometry; } // Parse the zone
-                catch (e) { console.log("Geometry parse error"); return; }
-                for (var key in users) { // Loop through users
-                  if (affects_user(users[key], zone)) { // Check if they're in the zone
-                    console.log("Zone match");
-                    send_alert(curAlert, key); // Send
-                  }
-                }
-              } else { console.log("Zone request error: " + error); }
-            })
-          }
-        }
-      }
-      console.log("Parsed " + i + " alerts");
+      get_users(function() { parse_data(response, body); });
     }
-    else if (response.statusCode === 304) { console.log("Data not modified"); }
+    else if (!error && response.statusCode === 304) { console.log("Data not modified"); }
     else { console.log("Request failed: ", error); }
   })
+}
+
+// Go through the requested data and send alerts to users
+function parse_data(response, body) {
+  // Parse alerts to json object and update last sent variables
+  var alerts;
+  try { alerts = JSON.parse(body).features; }
+  catch (e) { console.log("Parse error"); return; }
+  console.log("Last modified: " + response.headers['last-modified']);
+  console.log("xserverid: " + response.headers['x-server-id']);
+
+  // Loop through only new alerts, breaking when we get to lastSent id
+  // Look for users within the zones and notify them
+  for (var i = 0; i < alerts.length; i++) {
+    const curAlert = alerts[i];
+    const curAlProp = alerts[i].properties;
+    if (curAlProp.id === lastSent)
+      break;
+    if (alerts[i].geometry) { // Current alert uses polygon
+      for (var key in users) { // Loop through users
+        if (affects_user(users[key], alerts[i].geometry)) { // Check if zay in da box
+          console.log("Polygon match");
+          send_alert(curAlert, key); // Yay! day in da box, send it
+        }
+      }
+    }
+    else { // Current alert uses zones (usually counties) that have to be requested
+      for (var x = 0; x < curAlProp.affectedZones.length; x++) {
+        let zoneRequestOptions = {
+          url: curAlProp.affectedZones[x],
+          headers: { 'User-Agent': USER_AGENT }
+        };
+        request(zoneRequestOptions, function (error, response, body) { // Get the zone
+          if (!error && response.statusCode === 200) {
+            var zone;
+            try { zone = JSON.parse(body).geometry; } // Parse the zone
+            catch (e) { console.log("Geometry parse error"); return; }
+            for (var key in users) { // Loop through users
+              if (affects_user(users[key], zone)) { // Check if they're in the zone
+                console.log("Zone match");
+                send_alert(curAlert, key); // Send
+              }
+            }
+          } else { console.log("Zone request error: " + error); }
+        })
+      }
+    }
+  }
+  set_last_sent(response.headers['last-modified'], alerts[0].properties.id);
+  console.log("Parsed " + i + " alerts");
 }
 
 // Helper to update the last sent and modified variables so that
 // we only parse and send new data
 function set_last_sent(lastModified, id) {
-  var db = admin.database();
   db.ref("/lastSent").set(id);
   db.ref("/lastModified").set(lastModified);
 }
@@ -204,11 +221,15 @@ function send_alert(alert, regToken) {
   if (instruction !== "null")
     notificationBody += "\n\n" + instruction;
 
+  // Notifications with the same tag will override any previous ones with
+  // the same tag. Use root post id as tag so subsequent updates will
+  // replace the previous one.
+  var tag = (alProp.references.length > 0) ? alProp.references[alProp.references.length-1].identifier : alProp.id;
   // Construct firebase message payload
   var message = {
     notification: {
       title: alProp.event + ((alProp.messageType === "Alert") ? "" : " Update"),
-      body: notificationBody,
+      body: notificationBody.substring(0, 600),
     },
     android: {
       notification: {
@@ -216,10 +237,7 @@ function send_alert(alert, regToken) {
         icon: alertStyle[alProp.event].icon,
         'channel_id': alProp.messageType,
         'click_action': 'alertviewer',
-        // Notifications with the same tag will override any previous ones with
-        // the same tag. Use root post id as tag so subsequent updates will
-        // replace the previous one.
-        tag: (alProp.references.length > 0) ? alProp.references[alProp.references.length-1].identifier : alProp.id,
+        tag: tag,
       },
       priority: "high"
     },
@@ -232,6 +250,7 @@ function send_alert(alert, regToken) {
       type: alProp.messageType,
       polygon: polygon,
       zones: zones,
+      tag: tag,
       sent: new Date(alProp.sent).getTime().toString(),
       onset: new Date(alProp.onset).getTime().toString(),
       ends: new Date(((alProp.ends) ? alProp.ends : alProp.expires)).getTime().toString(),
@@ -256,15 +275,16 @@ function send_message(message) {
     .catch((error) => {
       if (error.errorInfo.code === "messaging/registration-token-not-registered")
         delete_token_from_database(message.token);
-      else
+      else {
         console.log('Unkown error sending message:', error);
+        console.log("message: " + JSON.stringify(message));
+      }
   });
 }
 
 // Helper function to delete user given their token
 function delete_token_from_database(token) {
   console.log("Deleting token: " + token);
-  var db = admin.database();
   db.ref("/users/" + token).remove();
 }
 
@@ -276,9 +296,8 @@ exports.userupdate = functions.https.onRequest((req, res) => {
   // TODO: make this regex and do more robust validation
   var validReq = keys.length === 1 && reqBod[keys[0]].locations && reqBod[keys[0]].locations.length <= 5 && reqBod[keys[0]].locations.length > 0;
   if (validReq) {
-    var db = admin.database();
-    var userRef = db.ref("/users");
-    userRef.child(keys[0]).set(reqBod[keys[0]]);
+    var userRef = db.ref("/users/" + keys[0]);
+    userRef.set(reqBod[keys[0]]);
     console.log("User sync. Token: " + keys[0]);
     res.status(200).send();
   } else {
