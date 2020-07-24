@@ -110,13 +110,12 @@ function parse_and_send(data) {
           url: curAlProp.affectedZones[x],
           headers: { 'User-Agent': USER_AGENT }
         };
-        promises.push(new Promise((resolve, request) => {
+        let reqPromise = new Promise((resolve, reject) => {
           request(zoneRequestOptions, (error, response, body) => { // Get the zone
-            console.log("zone");
             if (!error && response.statusCode === 200) {
               var zone;
               try { zone = JSON.parse(body).geometry; } // Parse the zone
-              catch (e) { console.log("Geometry parse error"); return; }
+              catch (e) { console.log("Geometry parse error"); reject(new Error("Geometry parse error")); return; }
               for (var key in users) { // Loop through users
                 if (affects_user(users[key], zone)) { // Check if they're in the zone
                   console.log("Zone match");
@@ -126,7 +125,8 @@ function parse_and_send(data) {
             } else { console.log("Zone request error: " + error); }
             resolve();
           })
-        }));
+        });
+        promises.push(reqPromise);
       }
     }
   }
