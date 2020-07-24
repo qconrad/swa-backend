@@ -4,7 +4,6 @@ const admin = require("firebase-admin");
 const request = require('request');
 const serviceAccount = require("./serviceAccountKey.json");
 const inside = require('point-in-polygon');
-const runtimeOpts = { timeoutSeconds: 120 }
 
 // Init this stuff
 admin.initializeApp({
@@ -24,7 +23,7 @@ var lastModified; // Time and date of newest data
 var users;        // Users pulled from database
 
 // Fetch, parse, and send alerts every minute
-exports.alertsupdate = functions.runWith(runtimeOpts).pubsub.schedule('* * * * *')
+exports.alertsupdate = functions.pubsub.schedule('* * * * *')
   .onRun(() => {
     return new Promise(async(resolve) => {
       await get_last_sent();
@@ -52,9 +51,7 @@ function get_last_sent() {
 
 // Gets all users from database, store in database
 // Downloads a decent amount of data so only use when new data is available
-function get_users() {
-  return db.ref("/users").once("value", (data) => { users = data.val(); });
-}
+function get_users() { return db.ref("/users").once("value", (data) => { users = data.val(); }); }
 
 // Request alerts from NWS's servers
 function fetch_data() {
@@ -76,7 +73,7 @@ function fetch_data() {
         resolve(body);
       }
       else if (!error && response.statusCode === 304) { reject(new Error("Data not modified")); }
-      else { reject(new Error("Request failed" + error)); }
+      else { reject(new Error("Request failed: " + error)); }
     })
   });
 }
