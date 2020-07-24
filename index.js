@@ -4,7 +4,7 @@ const admin = require("firebase-admin");
 const request = require('request');
 const serviceAccount = require("./serviceAccountKey.json");
 const inside = require('point-in-polygon');
-const runtimeOpts = { timeoutSeconds: 300 }
+const runtimeOpts = { timeoutSeconds: 120 }
 
 // Init this stuff
 admin.initializeApp({
@@ -23,67 +23,71 @@ var lastSent;     // ID of last sent alert
 var lastModified; // Time and date of newest data
 var users;        // Users pulled from database
 
-// Fetch and parse alerts every minute
+// Fetch, parse, and send alerts every minute
 exports.alertsupdate = functions.runWith(runtimeOpts).pubsub.schedule('* * * * *')
   .onRun(() => {
-    get_last_sent();
-    return null;
+    return new Promise(async(resolve) => {
+      await get_last_sent();
+      fetch_data().then(async data => {
+        await get_users();
+        await parse_and_send(data);
+        await set_last_sent(lastModified, lastSent);
+        console.log("Finished up successfully");
+        resolve();
+        return null;
+      }).catch(err => {
+        console.log(err.message);
+        resolve();
+      })
+    });
 });
 
-// Gets last sent information and begins the data fetch
+// Get last sent information from database, store in global variables
 function get_last_sent() {
-  var ref = db.ref("/lastSent");
-  ref.once("value", function(data) {
-    lastSent = data.val();
-    ref = db.ref("/lastModified");
-    ref.once("value", function(data) {
-      lastModified = data.val();
-      fetch_data();
-    });
-  });
+  return Promise.all([
+    db.ref("/lastSent").once("value", (data) => { lastSent = data.val(); }),
+    db.ref("/lastModified").once("value", (data) => { lastModified = data.val(); })
+  ]);
 }
 
-// Gets all users from database
-// Only do this when new alerts are available
-function get_users(callback) {
-  var ref = db.ref("/users");
-  ref.once("value", function(data) {
-    users = data.val();
-    callback();
-  });
+// Gets all users from database, store in database
+// Downloads a decent amount of data so only use when new data is available
+function get_users() {
+  return db.ref("/users").once("value", (data) => { users = data.val(); });
 }
 
-// Request alerts from NWS servers
+// Request alerts from NWS's servers
 function fetch_data() {
-  let requestOptions = {
-    url: 'https://api.weather.gov/alerts?status=actual',
-    headers: { 'User-Agent': USER_AGENT, "If-Modified-Since": lastModified }
-  };
-  request(requestOptions, function (error, response, body) {
-    if (!error && response.statusCode === 200) { // Successful response
-      // Absolutely make sure the data is newer. Sometimes the
-      // "If-Modified-Since" header doesn't work (returns older data) and this
-      // parses all alerts, sends duplicates, and sometimes locks out the api
-      // because of too many requests
-      if (Date.parse(response.headers['last-modified']) < Date.parse(lastModified)) {
-        console.log("Data not newer");
-        return;
+  return new Promise((resolve, reject) => {
+    let requestOptions = {
+      url: 'https://api.weather.gov/alerts?status=actual',
+      headers: { 'User-Agent': USER_AGENT, "If-Modified-Since": lastModified }
+    };
+    request(requestOptions, (error, response, body) => {
+      if (!error && response.statusCode === 200) { // Successful response
+        // Absolutely make sure the data is newer. Sometimes the
+        // "If-Modified-Since" header doesn't work (returns older data) and this
+        // parses all alerts, sends duplicates, and sometimes locks out the api
+        // because of too many requests
+        if (Date.parse(response.headers['last-modified']) < Date.parse(lastModified)) {
+          reject(new Error("Data not newer")); return;
+        }
+        lastModified = response.headers['last-modified'];
+        resolve(body);
       }
-      get_users(function() { parse_data(response, body); });
-    }
-    else if (!error && response.statusCode === 304) { console.log("Data not modified"); }
-    else { console.log("Request failed: ", error); }
-  })
+      else if (!error && response.statusCode === 304) { reject(new Error("Data not modified")); }
+      else { reject(new Error("Request failed" + error)); }
+    })
+  });
 }
 
 // Go through the requested data and send alerts to users
-function parse_data(response, body) {
-  // Parse alerts to json object and update last sent variables
+function parse_and_send(data) {
+  let promises = [];
+  // Parse alerts to json object
   var alerts;
-  try { alerts = JSON.parse(body).features; }
-  catch (e) { console.log("Parse error"); return; }
-  console.log("Last modified: " + response.headers['last-modified']);
-  console.log("xserverid: " + response.headers['x-server-id']);
+  try { alerts = JSON.parse(data).features; }
+  catch (e) { return Promise.reject(new Error("Parse error")); }
 
   // Loop through only new alerts, breaking when we get to lastSent id
   // Look for users within the zones and notify them
@@ -96,7 +100,7 @@ function parse_data(response, body) {
       for (var key in users) { // Loop through users
         if (affects_user(users[key], alerts[i].geometry)) { // Check if zay in da box
           console.log("Polygon match");
-          send_alert(curAlert, key); // Yay! day in da box, send it
+          promises.push(send_alert(curAlert, key)); // Yay! day in da box, send it
         }
       }
     }
@@ -106,34 +110,40 @@ function parse_data(response, body) {
           url: curAlProp.affectedZones[x],
           headers: { 'User-Agent': USER_AGENT }
         };
-        request(zoneRequestOptions, function (error, response, body) { // Get the zone
-          if (!error && response.statusCode === 200) {
-            var zone;
-            try { zone = JSON.parse(body).geometry; } // Parse the zone
-            catch (e) { console.log("Geometry parse error"); return; }
-            for (var key in users) { // Loop through users
-              if (affects_user(users[key], zone)) { // Check if they're in the zone
-                console.log("Zone match");
-                send_alert(curAlert, key); // Send
+        promises.push(new Promise((resolve, request) => {
+          request(zoneRequestOptions, (error, response, body) => { // Get the zone
+            console.log("zone");
+            if (!error && response.statusCode === 200) {
+              var zone;
+              try { zone = JSON.parse(body).geometry; } // Parse the zone
+              catch (e) { console.log("Geometry parse error"); return; }
+              for (var key in users) { // Loop through users
+                if (affects_user(users[key], zone)) { // Check if they're in the zone
+                  console.log("Zone match");
+                  promises.push(send_alert(curAlert, key)); // Send
+                }
               }
-            }
-          } else { console.log("Zone request error: " + error); }
-        })
+            } else { console.log("Zone request error: " + error); }
+            resolve();
+          })
+        }));
       }
     }
   }
-  set_last_sent(response.headers['last-modified'], alerts[0].properties.id);
+  lastSent = alerts[0].properties.id;
   console.log("Parsed " + i + " alerts");
+  return Promise.all(promises);
 }
 
-// Helper to update the last sent and modified variables so that
-// we only parse and send new data
+// Update the last sent and modified variables
 function set_last_sent(lastModified, id) {
-  db.ref("/lastSent").set(id);
-  db.ref("/lastModified").set(lastModified);
+  return Promise.all([
+    db.ref("/lastSent").set(id),
+    db.ref("/lastModified").set(lastModified)
+  ]);
 }
 
-// Helper that returns true if given user is within given zone
+// Returns true if given user is within given zone
 function affects_user(user, zone) {
   // Geojson uses an array of shapes where the first polygon is the actual
   // shape of the polygon and the rest are negative areas to subtract out. I
@@ -176,6 +186,8 @@ function parse_text(text) {
 function send_alert(alert, regToken) {
   const alProp = alert.properties;
   console.log(alert.properties.headline);
+  if (alProp.event === "Tropical Cyclone Statement")
+    alProp.event = "Hurricane Local Statement"
 
   // Description
   var description = parse_text(alProp.description);
@@ -184,7 +196,7 @@ function send_alert(alert, regToken) {
   var headline = "null";
   var descHeadline = alProp.description.match(/^\.\.\.[^.]*\.\.\./);
   if (descHeadline) {
-    headline = descHeadline[0]; // TODO: replace 3 dots with nothing
+    headline = descHeadline[0];
     description.replace(/^\.\.\.[^.]*\.\.\.\n+/, "");
   }
   if (alProp.parameters.NWSheadline) {
@@ -208,7 +220,11 @@ function send_alert(alert, regToken) {
   if (alert.geometry) {
     polygon = JSON.stringify(alert.geometry.coordinates[0]);
   } else {
-    zones = JSON.stringify(alProp.affectedZones);
+    var zones = alProp.affectedZones;
+    for (var i = 0; i < zones.length; i++) {
+      zones[i] = zones[i].substring(30);
+    }
+    zones = JSON.stringify(zones);
   }
 
   // Notification Body
@@ -225,6 +241,7 @@ function send_alert(alert, regToken) {
   // the same tag. Use root post id as tag so subsequent updates will
   // replace the previous one.
   var tag = (alProp.references.length > 0) ? alProp.references[alProp.references.length-1].identifier : alProp.id;
+
   // Construct firebase message payload
   var message = {
     notification: {
@@ -259,33 +276,44 @@ function send_alert(alert, regToken) {
     },
     token: regToken
   };
-  send_message(message)
+  // Firebase messages can only by 4KB so remove the zones then the text if we
+  // have to. The app will have to request that information if missing
+  if (JSON.stringify(message).length > 4000) { // Too large, remove zones
+    message.data.zones = "[]";
+    message.data.polygon = "null";
+  }
+  if (JSON.stringify(message).length > 4000) { // Still too large, remove text
+    message.data.description = "null";
+    message.data.instruction = "null";
+  }
+  return send_message(message)
 }
 
 // Send message payload to device
 // Deletes user from database if token is invalid
 function send_message(message) {
-  admin.messaging().send(message)
-    .then((response) => {
-      // Response is a message ID string.
-      console.log('Successfully sent message:', response);
-      console.log('token:', message.token);
-      return;
-    })
-    .catch((error) => {
-      if (error.errorInfo.code === "messaging/registration-token-not-registered")
-        delete_token_from_database(message.token);
-      else {
-        console.log('Unkown error sending message:', error);
-        console.log("message: " + JSON.stringify(message));
-      }
+  let promises = [];
+  let msgPromise = admin.messaging().send(message).then((response) => {
+     // Response is a message ID string.
+    console.log('Successfully sent message:', response);
+    console.log('token:', message.token);
+    return null;
+  }).catch((error) => {
+    if (error.errorInfo.code === "messaging/registration-token-not-registered")
+      promises.push(delete_token_from_database(message.token));
+    else {
+      console.log('Unkown error sending message:', error);
+      console.log("message: " + JSON.stringify(message));
+    }
   });
+  promises.push(msgPromise);
+  return Promise.all(promises);
 }
 
 // Helper function to delete user given their token
 function delete_token_from_database(token) {
   console.log("Deleting token: " + token);
-  db.ref("/users/" + token).remove();
+  return db.ref("/users/" + token).remove();
 }
 
 // Called when user makes request to update their location or register
