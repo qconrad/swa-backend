@@ -49,6 +49,14 @@ function get_last_sent() {
   ]);
 }
 
+// Update the last sent and modified variables
+function set_last_sent(lastModified, id) {
+  return Promise.all([
+    db.ref("/lastSent").set(id),
+    db.ref("/lastModified").set(lastModified)
+  ]);
+}
+
 // Gets all users from database, store in database
 // Downloads a decent amount of data so only use when new data is available
 function get_users() { return db.ref("/users").once("value", (data) => { users = data.val(); }); }
@@ -79,7 +87,7 @@ function fetch_data() {
 }
 
 // Go through the requested data and send alerts to users
-function parse_and_send(data) {
+async function parse_and_send(data) {
   let promises = [];
   // Parse alerts to json object
   var alerts;
@@ -129,15 +137,8 @@ function parse_and_send(data) {
   }
   lastSent = alerts[0].properties.id;
   console.log("Parsed " + i + " alerts");
+  await Promise.all(promises);
   return Promise.all(promises);
-}
-
-// Update the last sent and modified variables
-function set_last_sent(lastModified, id) {
-  return Promise.all([
-    db.ref("/lastSent").set(id),
-    db.ref("/lastModified").set(lastModified)
-  ]);
 }
 
 // Returns true if given user is within given zone
