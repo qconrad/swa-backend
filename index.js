@@ -57,11 +57,13 @@ function set_last_sent(lastModified, id) {
   ]);
 }
 
-// Gets all users from database, store in database
+// Gets all users from database, store in users variable
 // Downloads a decent amount of data so only use when new data is available
 function get_users() { return db.ref("/users").once("value", (data) => { users = data.val(); }); }
 
-// Request alerts from NWS's servers
+// Requests alerts from api.weather.gov
+// Returns promise that resolves to returned data
+// Rejects with message if no new data is available
 function fetch_data() {
   return new Promise((resolve, reject) => {
     let requestOptions = {
@@ -80,13 +82,15 @@ function fetch_data() {
         lastModified = response.headers['last-modified'];
         resolve(body);
       }
-      else if (!error && response.statusCode === 304) { reject(new Error("Data not modified")); }
+      else if (!error && response.statusCode === 304) { reject(new Error("Data not modified (HTTP 304)")); }
+      else if (response.statusCode === 503) { reject(new Error("Service unavaliable (HTTP 503)")); }
+      else if (response.statusCode === 502) { reject(new Error("Bad gateway (HTTP 502)")); }
       else { reject(new Error("Request failed: " + error)); }
     })
   });
 }
 
-// Go through the requested data and send alerts to users
+// Parse input data and send alerts to users
 async function parse_and_send(data) {
   let promises = [];
   // Parse alerts to json object
@@ -137,6 +141,7 @@ async function parse_and_send(data) {
   }
   lastSent = alerts[0].properties.id;
   console.log("Parsed " + i + " alerts");
+  // Wait for zone callbacks to add all the send promises before returning
   await Promise.all(promises);
   return Promise.all(promises);
 }
@@ -184,6 +189,8 @@ function parse_text(text) {
 function send_alert(alert, regToken) {
   const alProp = alert.properties;
   console.log(alert.properties.headline);
+
+  // Remap alert name. This is how it appears on weather.gov
   if (alProp.event === "Tropical Cyclone Statement")
     alProp.event = "Hurricane Local Statement"
 
@@ -323,12 +330,16 @@ exports.userupdate = functions.https.onRequest((req, res) => {
   var validReq = keys.length === 1 && reqBod[keys[0]].locations && reqBod[keys[0]].locations.length <= 5 && reqBod[keys[0]].locations.length > 0;
   if (validReq) {
     var userRef = db.ref("/users/" + keys[0]);
-    userRef.set(reqBod[keys[0]]);
-    console.log("User sync. Token: " + keys[0]);
-    res.status(200).send();
+    userRef.set(reqBod[keys[0]]).then(() => {
+      console.log("User sync. Token: " + keys[0]);
+      return res.status(200).send();
+    }).catch(() => {
+      console.log("Database error: HTTP 500 sent");
+      return res.status(500).send();
+    })
   } else {
-    console.log("invalid request");
-    res.status(400).send();
+    console.log("Invalid request: HTTP 400 sent");
+    return res.status(400).send();
   }
 });
 
