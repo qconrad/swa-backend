@@ -18,19 +18,19 @@ const db = admin.database();
 const USER_AGENT = '(Severe Weather Alerts, https://github.com/qconrad/severe-weather-alerts)';
 
 // Keep track of these things
-var lastSent;     // ID of last sent alert
-var lastModified; // Time and date of newest data
-var users;        // Users pulled from database
+let lastModified; // Time and date of newest data
+let parsed = [];  // IDs of alerts that have already been parsed and sent
+let users;        // Users pulled from database
 
 // Fetch, parse, and send alerts every minute
 exports.alertsupdate = functions.pubsub.schedule('* * * * *')
   .onRun(() => {
     return new Promise(async(resolve) => {
-      await get_last_sent();
+      await get_last_parse();
       fetch_data().then(async data => {
         await get_users();
         await parse_and_send(data);
-        await set_last_sent(lastModified, lastSent);
+        await set_last_parse();
         console.log("Finished up successfully");
         resolve();
         return null;
@@ -41,18 +41,20 @@ exports.alertsupdate = functions.pubsub.schedule('* * * * *')
     });
 });
 
-// Get last sent information from database, store in global variables
-function get_last_sent() {
+// Get last parse information from database, store in global variables
+function get_last_parse() {
   return Promise.all([
-    db.ref("/lastSent").once("value", (data) => { lastSent = data.val(); }),
+    db.ref("/parsed").once("value", (data) => { parsed = data.val(); }),
     db.ref("/lastModified").once("value", (data) => { lastModified = data.val(); })
   ]);
 }
 
-// Update the last sent and modified variables
-function set_last_sent(lastModified, id) {
+// Update the last parse and modified variables
+function set_last_parse() {
+  if (parsed.length > 750) // If the list gets too big chop off old alerts
+    parsed = parsed.slice(parsed.length - 600, parsed.length);
   return Promise.all([
-    db.ref("/lastSent").set(id),
+    db.ref("/parsed").set(parsed),
     db.ref("/lastModified").set(lastModified)
   ]);
 }
@@ -72,13 +74,6 @@ function fetch_data() {
     };
     request(requestOptions, (error, response, body) => {
       if (!error && response.statusCode === 200) { // Successful response
-        // Absolutely make sure the data is newer. Sometimes the
-        // "If-Modified-Since" header doesn't work (returns older data) and this
-        // parses all alerts, sends duplicates, and sometimes locks out the api
-        // because of too many requests
-        if (Date.parse(response.headers['last-modified']) < Date.parse(lastModified)) {
-          reject(new Error("Data not newer")); return;
-        }
         lastModified = response.headers['last-modified'];
         resolve(body);
       }
@@ -93,28 +88,34 @@ function fetch_data() {
 // Parse input data and send alerts to users
 async function parse_and_send(data) {
   let promises = [];
-  // Parse alerts to json object
-  var alerts;
+  let parseCount = 0;
+  let alerts;
   try { alerts = JSON.parse(data).features; }
   catch (e) { return Promise.reject(new Error("Parse error")); }
 
-  // Loop through only new alerts, breaking when we get to lastSent id
+  // Loop through alerts
   // Look for users within the zones and notify them
-  for (var i = 0; i < alerts.length; i++) {
+  for (let i = 0; i < 150; i++) {
     const curAlert = alerts[i];
     const curAlProp = alerts[i].properties;
-    if (curAlProp.id === lastSent)
-      break;
+    if (parsed.includes(curAlProp.id))
+      continue;
+    parseCount++;
+    parsed.push(curAlProp.id);
     if (alerts[i].geometry) { // Current alert uses polygon
-      for (var key in users) { // Loop through users
+      for (let key in users) { // Loop through users
         if (affects_user(users[key], alerts[i].geometry)) { // Check if zay in da box
-          console.log("Polygon match");
+          // Bit of a convoluted statement but cancellation polygons are
+          // sometimes put out for entire area including the continued area.
+          // This check solves that and only sends the cancellation to the people
+          // who are not in the new one
+          if (curAlProp.messageType === "Cancel" && ((alerts[i+1] && JSON.stringify(alerts[i+1].properties.references) === JSON.stringify(curAlProp.references) && affects_user(users[key], alerts[i+1].geometry)) || alerts[i-1] && (JSON.stringify(alerts[i-1].properties.references) === JSON.stringify(curAlProp.references) && affects_user(users[key], alerts[i-1].geometry)))) { continue; }
           promises.push(send_alert(curAlert, key)); // Yay! day in da box, send it
         }
       }
     }
     else { // Current alert uses zones (usually counties) that have to be requested
-      for (var x = 0; x < curAlProp.affectedZones.length; x++) {
+      for (let x = 0; x < curAlProp.affectedZones.length; x++) {
         let zoneRequestOptions = {
           url: curAlProp.affectedZones[x],
           headers: { 'User-Agent': USER_AGENT }
@@ -122,12 +123,11 @@ async function parse_and_send(data) {
         let reqPromise = new Promise((resolve, reject) => {
           request(zoneRequestOptions, (error, response, body) => { // Get the zone
             if (!error && response.statusCode === 200) {
-              var zone;
+              let zone;
               try { zone = JSON.parse(body).geometry; } // Parse the zone
               catch (e) { console.log("Geometry parse error"); reject(new Error("Geometry parse error")); return; }
-              for (var key in users) { // Loop through users
+              for (let key in users) { // Loop through users
                 if (affects_user(users[key], zone)) { // Check if they're in the zone
-                  console.log("Zone match");
                   promises.push(send_alert(curAlert, key)); // Send
                 }
               }
@@ -139,8 +139,7 @@ async function parse_and_send(data) {
       }
     }
   }
-  lastSent = alerts[0].properties.id;
-  console.log("Parsed " + i + " alerts");
+  console.log("Parsed " + parseCount + " alerts");
   // Wait for zone callbacks to add all the send promises before returning
   await Promise.all(promises);
   return Promise.all(promises);
@@ -152,11 +151,11 @@ function affects_user(user, zone) {
   // shape of the polygon and the rest are negative areas to subtract out. I
   // have yet to find a weather zone that includes the negative area. So for
   // now, I'm leaving it out of the calculation
-  var usrLocation = user.locations;
-  for (var i = 0; i < usrLocation.length; i++) {
+  let usrLocation = user.locations;
+  for (let i = 0; i < usrLocation.length; i++) {
     if (zone.type === "MultiPolygon") {
-      for (var curPlygon = 0; curPlygon < zone.coordinates.length; curPlygon++) {
-        for (var curInner = 0; curInner < zone.coordinates[curPlygon].length; curInner++) {
+      for (let curPlygon = 0; curPlygon < zone.coordinates.length; curPlygon++) {
+        for (let curInner = 0; curInner < zone.coordinates[curPlygon].length; curInner++) {
           if (inside(usrLocation[i], zone.coordinates[curPlygon][curInner]))
             return true;
         }
@@ -188,18 +187,17 @@ function parse_text(text) {
 // Take alert and firebase token, pretty it up, and send it to user
 function send_alert(alert, regToken) {
   const alProp = alert.properties;
-  console.log(alert.properties.headline);
 
   // Remap alert name. This is how it appears on weather.gov
   if (alProp.event === "Tropical Cyclone Statement")
     alProp.event = "Hurricane Local Statement"
 
   // Description
-  var description = parse_text(alProp.description);
+  let description = parse_text(alProp.description);
 
   // Headline
-  var headline = "null";
-  var descHeadline = alProp.description.match(/^\.\.\.[^.]*\.\.\./);
+  let headline = "null";
+  let descHeadline = alProp.description.match(/^\.\.\.[^.]*\.\.\./);
   if (descHeadline) {
     headline = descHeadline[0];
     description.replace(/^\.\.\.[^.]*\.\.\.\n+/, "");
@@ -216,24 +214,24 @@ function send_alert(alert, regToken) {
   }
 
   // Instruction (Recommended Actions)
-  var instruction = "null";
+  let instruction = "null";
   if (alProp.instruction)
     instruction = parse_text(alProp.instruction);
 
   // Geometry
-  var polygon = zones = "null";
+  let polygon = zones = "null";
   if (alert.geometry) {
     polygon = JSON.stringify(alert.geometry.coordinates[0]);
   } else {
-    var zones = alProp.affectedZones;
-    for (var i = 0; i < zones.length; i++) {
+    let zones = alProp.affectedZones;
+    for (let i = 0; i < zones.length; i++) {
       zones[i] = zones[i].substring(30);
     }
     zones = JSON.stringify(zones);
   }
 
   // Notification Body
-  var notificationBody = "";
+  let notificationBody = "";
   if (headline !== "null")
     notificationBody += headline + "\n\n";
 
@@ -242,13 +240,11 @@ function send_alert(alert, regToken) {
   if (instruction !== "null")
     notificationBody += "\n\n" + instruction;
 
-  // Notifications with the same tag will override any previous ones with
-  // the same tag. Use root post id as tag so subsequent updates will
-  // replace the previous one.
-  var tag = (alProp.references.length > 0) ? alProp.references[alProp.references.length-1].identifier : alProp.id;
+  // Overwrite notifications with same event
+  let tag = alProp.event;
 
   // Construct firebase message payload
-  var message = {
+  let message = {
     notification: {
       title: alProp.event + ((alProp.messageType === "Alert") ? "" : " Update"),
       body: notificationBody.substring(0, 600),
@@ -299,9 +295,12 @@ function send_alert(alert, regToken) {
 function send_message(message) {
   let promises = [];
   let msgPromise = admin.messaging().send(message).then((response) => {
-     // Response is a message ID string.
-    console.log('Successfully sent message:', response);
-    console.log('token:', message.token);
+    // Log alert, latency, and response
+    let latency = (new Date() - parseInt(message.data.sent)) / 1000;
+    let latencyMinutes = Math.floor(latency / 60);
+    let latencySeconds = Math.floor(latency - latencyMinutes * 60);
+    let latencyString = latencyMinutes + " min " + latencySeconds + " sec" + ((latency > 300) ? " (ELEVATED)" : "");
+    console.log(message.data.name + " " + message.data.type + " by " + message.data.senderName + " sent. Latency: " + latencyString + ". Token: " + message.token + ". Response: " + response);
     return null;
   }).catch((error) => {
     if (error.errorInfo.code === "messaging/registration-token-not-registered")
@@ -324,12 +323,12 @@ function delete_token_from_database(token) {
 // Called when user makes request to update their location or register
 // Validates request and updates database accordingly
 exports.userupdate = functions.https.onRequest((req, res) => {
-  var reqBod = req.body;
-  var keys = Object.keys(reqBod);
+  let reqBod = req.body;
+  let keys = Object.keys(reqBod);
   // TODO: make this regex and do more robust validation
-  var validReq = keys.length === 1 && reqBod[keys[0]].locations && reqBod[keys[0]].locations.length <= 5 && reqBod[keys[0]].locations.length > 0;
+  let validReq = keys.length === 1 && reqBod[keys[0]].locations && reqBod[keys[0]].locations.length <= 5 && reqBod[keys[0]].locations.length > 0;
   if (validReq) {
-    var userRef = db.ref("/users/" + keys[0]);
+    let userRef = db.ref("/users/" + keys[0]);
     userRef.set(reqBod[keys[0]]).then(() => {
       console.log("User sync. Token: " + keys[0]);
       return res.status(200).send();
