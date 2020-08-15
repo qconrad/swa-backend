@@ -51,7 +51,7 @@ function get_last_parse() {
 
 // Update the last parse and modified variables
 function set_last_parse() {
-  if (parsed.length > 750) // If the list gets too big chop off old alerts
+  if (parsed.length > 750) // If the list gets too big, chop off old alerts
     parsed = parsed.slice(parsed.length - 600, parsed.length);
   return Promise.all([
     db.ref("/parsed").set(parsed),
@@ -109,7 +109,8 @@ async function parse_and_send(data) {
           // sometimes put out for entire area including the continued area.
           // This check solves that and only sends the cancellation to the people
           // who are not in the new one
-          if (curAlProp.messageType === "Cancel" && ((alerts[i+1] && JSON.stringify(alerts[i+1].properties.references) === JSON.stringify(curAlProp.references) && affects_user(users[key], alerts[i+1].geometry)) || alerts[i-1] && (JSON.stringify(alerts[i-1].properties.references) === JSON.stringify(curAlProp.references) && affects_user(users[key], alerts[i-1].geometry)))) { continue; }
+          let alertContinued = curAlProp.messageType === "Cancel" && ((alerts[i+1] && JSON.stringify(alerts[i+1].properties.references) === JSON.stringify(curAlProp.references) && affects_user(users[key], alerts[i+1].geometry)) || alerts[i-1] && (JSON.stringify(alerts[i-1].properties.references) === JSON.stringify(curAlProp.references) && affects_user(users[key], alerts[i-1].geometry)));
+          if (alertContinued) { continue; }
           promises.push(send_alert(curAlert, key)); // Yay! day in da box, send it
         }
       }
@@ -199,8 +200,9 @@ function send_alert(alert, regToken) {
   let headline = "null";
   let descHeadline = alProp.description.match(/^\.\.\.[^.]*\.\.\./);
   if (descHeadline) {
-    headline = descHeadline[0];
-    description.replace(/^\.\.\.[^.]*\.\.\.\n+/, "");
+    headline = descHeadline[0].replace(/\.\.\./g, "");
+    headline = headline.replace(/\n/g, "");
+    description = description.replace(/^\.\.\.[^.]*\.\.\.\n+/, "");
   }
   if (alProp.parameters.NWSheadline) {
     if (headline === "null") {
@@ -209,7 +211,7 @@ function send_alert(alert, regToken) {
                                                  .replace(/\.\.\./g, ", ")
                                                  .replace(/\n, /g, "\n");
     } else {
-      description = headline + "\n\n" + description;
+      description = alProp.parameters.NWSheadline[0] + "\n\n" + description;
     }
   }
 
@@ -282,10 +284,10 @@ function send_alert(alert, regToken) {
   if (JSON.stringify(message).length > 4000) { // Too large, remove zones
     message.data.zones = "[]";
     message.data.polygon = "null";
-  }
-  if (JSON.stringify(message).length > 4000) { // Still too large, remove text
-    message.data.description = "null";
-    message.data.instruction = "null";
+    if (JSON.stringify(message).length > 4000) { // Still too large, remove text
+      message.data.description = "null";
+      message.data.instruction = "null";
+    }
   }
   return send_message(message)
 }
@@ -298,8 +300,7 @@ function send_message(message) {
     // Log alert, latency, and response
     let latency = (new Date() - parseInt(message.data.sent)) / 1000;
     let latencyMinutes = Math.floor(latency / 60);
-    let latencySeconds = Math.floor(latency - latencyMinutes * 60);
-    let latencyString = latencyMinutes + " min " + latencySeconds + " sec" + ((latency > 300) ? " (ELEVATED)" : "");
+    let latencyString = "<" + latencyMinutes + " min" + ((latency > 300) ? " (ELEVATED)" : "");
     console.log(message.data.name + " " + message.data.type + " by " + message.data.senderName + " sent. Latency: " + latencyString + ". Token: " + message.token + ". Response: " + response);
     return null;
   }).catch((error) => {
