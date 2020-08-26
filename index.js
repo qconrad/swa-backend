@@ -18,19 +18,24 @@ const db = admin.database();
 const USER_AGENT = '(Severe Weather Alerts, https://github.com/qconrad/severe-weather-alerts)';
 
 // Keep track of these things
-let lastModified; // Time and date of newest data
-let parsed = [];  // IDs of alerts that have already been parsed and sent
-let users;        // Users pulled from database
+let lastModified;  // Time and date of newest data
+let parsed = [];   // IDs of alerts that have already been parsed and sent
+let users;         // Users pulled from database
+let messages = []; // List of messages to send
 
 // Fetch, parse, and send alerts every minute
 exports.alertsupdate = functions.pubsub.schedule('* * * * *')
   .onRun(() => {
     return new Promise(async(resolve) => {
-      await get_last_parse();
+      if (!lastModified) await get_last_parse();
       fetch_data().then(async data => {
+        messages = []; // Global variables cached by firebase, clear this out
         await get_users();
-        await parse_and_send(data);
-        await set_last_parse();
+        await parse(data);
+        let finishPromises = []; // Send and set last parse asynchronously
+        if (messages.length > 0) finishPromises.push(send_messages());
+        finishPromises.push(set_last_parse());
+        await Promise.all(finishPromises);
         console.log("Finished up successfully");
         resolve();
         return null;
@@ -51,8 +56,8 @@ function get_last_parse() {
 
 // Update the last parse and modified variables
 function set_last_parse() {
-  if (parsed.length > 750) // If the list gets too big, chop off old alerts
-    parsed = parsed.slice(parsed.length - 600, parsed.length);
+  if (parsed.length > 3500) // If the list gets too big, chop off old alerts
+    parsed = parsed.slice(parsed.length - 1000, parsed.length);
   return Promise.all([
     db.ref("/parsed").set(parsed),
     db.ref("/lastModified").set(lastModified)
@@ -74,6 +79,11 @@ function fetch_data() {
     };
     request(requestOptions, (error, response, body) => {
       if (!error && response.statusCode === 200) { // Successful response
+        // Absolutely make sure the data is newer. Sometimes the
+        // "If-Modified-Since" header doesn't work (returns older data)
+        if (Date.parse(response.headers['last-modified']) < Date.parse(lastModified)) {
+          reject(new Error("Data not newer")); return;
+        }
         lastModified = response.headers['last-modified'];
         resolve(body);
       }
@@ -86,7 +96,7 @@ function fetch_data() {
 }
 
 // Parse input data and send alerts to users
-async function parse_and_send(data) {
+async function parse(data) {
   let promises = [];
   let parseCount = 0;
   let alerts;
@@ -111,7 +121,7 @@ async function parse_and_send(data) {
           // who are not in the new one
           let alertContinued = curAlProp.messageType === "Cancel" && ((alerts[i+1] && JSON.stringify(alerts[i+1].properties.references) === JSON.stringify(curAlProp.references) && affects_user(users[key], alerts[i+1].geometry)) || alerts[i-1] && (JSON.stringify(alerts[i-1].properties.references) === JSON.stringify(curAlProp.references) && affects_user(users[key], alerts[i-1].geometry)));
           if (alertContinued) { continue; }
-          promises.push(send_alert(curAlert, key)); // Yay! day in da box, send it
+          add_alert(curAlert, key); // Yay! day in da box, send it
         }
       }
     }
@@ -129,7 +139,7 @@ async function parse_and_send(data) {
               catch (e) { console.log("Geometry parse error"); reject(new Error("Geometry parse error")); return; }
               for (let key in users) { // Loop through users
                 if (affects_user(users[key], zone)) { // Check if they're in the zone
-                  promises.push(send_alert(curAlert, key)); // Send
+                  add_alert(curAlert, key); // Send
                 }
               }
             } else { console.log("Zone request error: " + error); }
@@ -141,8 +151,6 @@ async function parse_and_send(data) {
     }
   }
   console.log("Parsed " + parseCount + " alerts");
-  // Wait for zone callbacks to add all the send promises before returning
-  await Promise.all(promises);
   return Promise.all(promises);
 }
 
@@ -186,8 +194,18 @@ function parse_text(text) {
 }
 
 // Take alert and firebase token, pretty it up, and send it to user
-function send_alert(alert, regToken) {
+function add_alert(alert, regToken) {
   const alProp = alert.properties;
+
+  // Log alert and latency
+  let latency = (new Date() - new Date(alProp.sent)) / 1000;
+  let latencyMinutes = Math.floor(latency / 60);
+  if (latencyMinutes >= 25) { // Don't even bother
+    console.log(alProp.id + " ignored. Latency: " + latencyMinutes + " minutes");
+    return;
+  }
+  let latencyString = "<" + latencyMinutes + " min" + ((latency > 300) ? " (ELEVATED)" : "");
+  console.log(alProp.event + " " + alProp.messageType + " by " + alProp.senderName + " matched. Latency: " + latencyString + ". Token: " + regToken);
 
   // Remap alert name. This is how it appears on weather.gov
   if (alProp.event === "Tropical Cyclone Statement")
@@ -279,6 +297,7 @@ function send_alert(alert, regToken) {
     },
     token: regToken
   };
+
   // Firebase messages can only by 4KB so remove the zones then the text if we
   // have to. The app will have to request that information if missing
   if (JSON.stringify(message).length > 4000) { // Too large, remove zones
@@ -289,29 +308,29 @@ function send_alert(alert, regToken) {
       message.data.instruction = "null";
     }
   }
-  return send_message(message)
+  messages.push(message);
 }
 
-// Send message payload to device
-// Deletes user from database if token is invalid
-function send_message(message) {
+// Sends all the messages in global variable, deletes invalid tokens from database
+async function send_messages() {
   let promises = [];
-  let msgPromise = admin.messaging().send(message).then((response) => {
-    // Log alert, latency, and response
-    let latency = (new Date() - parseInt(message.data.sent)) / 1000;
-    let latencyMinutes = Math.floor(latency / 60);
-    let latencyString = "<" + latencyMinutes + " min" + ((latency > 300) ? " (ELEVATED)" : "");
-    console.log(message.data.name + " " + message.data.type + " by " + message.data.senderName + " sent. Latency: " + latencyString + ". Token: " + message.token + ". Response: " + response);
-    return null;
-  }).catch((error) => {
-    if (error.errorInfo.code === "messaging/registration-token-not-registered")
-      promises.push(delete_token_from_database(message.token));
-    else {
-      console.log('Unkown error sending message:', error);
-      console.log("message: " + JSON.stringify(message));
-    }
+  let sendPromise = new Promise((resolve, reject) => {
+    admin.messaging().sendAll(messages).then((response) => {
+      console.log(response.successCount + " message(s) sent. " + response.failureCount + " failed.");
+      for (let i = 0; i < response.responses.length; i++) {
+        if (!response.responses[i].success) {
+          if (response.responses[i].error.code === "messaging/registration-token-not-registered") {
+            promises.push(delete_token_from_database(messages[i].token));
+          } else { console.log(response.responses[i].error); }
+        }
+      }
+      resolve();
+      return null;
+    }).catch(error => { reject(error); });
   });
-  promises.push(msgPromise);
+  promises.push(sendPromise);
+  // Wait for send request to complete before returning delete promises
+  await Promise.all(promises);
   return Promise.all(promises);
 }
 
