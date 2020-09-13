@@ -193,7 +193,7 @@ function parse_text(text) {
              .replace(/\n\.+/g, "\n");
 }
 
-// Take alert and firebase token, pretty it up, and send it to user
+// Take alert and firebase token, pretty it up, and add it to send list
 function add_alert(alert, regToken) {
   const alProp = alert.properties;
 
