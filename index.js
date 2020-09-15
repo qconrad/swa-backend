@@ -243,7 +243,7 @@ function add_alert(alert, regToken) {
   if (alert.geometry) {
     polygon = JSON.stringify(alert.geometry.coordinates[0]);
   } else {
-    var zones = alProp.affectedZones;
+    var zones = alProp.affectedZones.slice(0); // Copy array
     for (let i = 0; i < zones.length; i++) {
       zones[i] = zones[i].substring(30);
     }
