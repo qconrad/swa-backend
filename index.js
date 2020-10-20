@@ -121,7 +121,7 @@ async function parse(data) {
           // who are not in the new one
           let alertContinued = curAlProp.messageType === "Cancel" && ((alerts[i+1] && JSON.stringify(alerts[i+1].properties.references) === JSON.stringify(curAlProp.references) && affects_user(users[key], alerts[i+1].geometry)) || alerts[i-1] && (JSON.stringify(alerts[i-1].properties.references) === JSON.stringify(curAlProp.references) && affects_user(users[key], alerts[i-1].geometry)));
           if (alertContinued) { continue; }
-          add_alert(curAlert, key); // Yay! day in da box, send it
+          add_alert(curAlert, key, users[key].settings); // Yay! day in da box, send it
         }
       }
     }
@@ -139,7 +139,7 @@ async function parse(data) {
               catch (e) { console.log("Geometry parse error"); reject(new Error("Geometry parse error")); return; }
               for (let key in users) { // Loop through users
                 if (affects_user(users[key], zone)) { // Check if they're in the zone
-                  add_alert(curAlert, key); // Send
+                  add_alert(curAlert, key, users[key].settings); // Send
                 }
               }
             } else { console.log("Zone request error: " + error); }
@@ -194,8 +194,23 @@ function parse_text(text) {
 }
 
 // Take alert and firebase token, pretty it up, and add it to send list
-function add_alert(alert, regToken) {
+function add_alert(alert, regToken, settings) {
   const alProp = alert.properties;
+
+  // Notification Channel
+  let notificationChannel = alProp.messageType;
+  if (settings) {
+    if (alProp.messageType === "Cancel") notificationChannel = "low";
+    else {
+      let severityIndex = get_severity_index(alProp);
+      let map = settings[((alProp.messageType === "Alert") ? "alertMap" : "updateMap")];
+      if (severityIndex < map[0] || severityIndex > map[4] || map[0] === map[4]) { console.log("Out of preference range, not sending"); return; }
+      notificationChannel = "low";
+      if (severityIndex >= map[1] && severityIndex < map[2]) notificationChannel = "med";
+      else if (severityIndex >= map[2] && severityIndex < map[3]) notificationChannel = "high";
+      else if (severityIndex >= map[3] && severityIndex < map[4]) notificationChannel = "ext";
+    }
+  }
 
   // Log alert and latency
   let latency = (new Date() - new Date(alProp.sent)) / 1000;
@@ -205,7 +220,7 @@ function add_alert(alert, regToken) {
     return;
   }
   let latencyString = "<" + latencyMinutes + " min" + ((latency > 300) ? " (ELEVATED)" : "");
-  console.log(alProp.event + " " + alProp.messageType + " by " + alProp.senderName + " matched. Latency: " + latencyString + ". Token: " + regToken);
+  console.log(alProp.event + " " + alProp.messageType + " by " + alProp.senderName + " matched. Latency: " + latencyString + ". Channel: " + notificationChannel + ". Token: " + regToken);
 
   // Remap alert name. This is how it appears on weather.gov
   if (alProp.event === "Tropical Cyclone Statement")
@@ -273,11 +288,11 @@ function add_alert(alert, regToken) {
       notification: {
         color: ((alProp.messageType === "Cancel") ? "#868e96" : alertStyle[alProp.event].color),
         icon: alertStyle[alProp.event].icon,
-        'channel_id': alProp.messageType,
+        'channel_id': notificationChannel,
         'click_action': 'alertviewer',
         tag: tag,
       },
-      priority: "high"
+      priority: ((notificationChannel === "low" || notificationChannel === "med") ? "normal" : "high")
     },
     data: {
       name: alProp.event,
@@ -309,6 +324,32 @@ function add_alert(alert, regToken) {
     }
   }
   messages.push(message);
+}
+
+function get_severity_index(alProp) {
+  let urgency = 0;
+  let severity = 0;
+  let certainty = 0;
+
+  if (alProp.severity === "Minor") severity = 1;
+  else if (alProp.severity === "Moderate") severity = 2;
+  else if (alProp.severity === "Severe") severity = 3;
+  else if (alProp.severity === "Extreme") severity = 4;
+
+  if (alProp.messageType === "Cancel")
+    return severity;
+
+  if (alProp.urgency === "Past") urgency = 1;
+  else if (alProp.urgency === "Future") urgency = 2;
+  else if (alProp.urgency === "Expected") urgency = 3;
+  else if (alProp.urgency === "Immediate") urgency = 4;
+
+  if (alProp.certainty === "Unlikely") certainty = 1;
+  else if (alProp.certainty === "Possible") certainty = 2;
+  else if (alProp.certainty === "Likely") certainty = 3;
+  else if (alProp.certainty === "Observed") certainty = 4;
+
+  return urgency + (3 * severity) + certainty
 }
 
 // Sends all the messages in global variable, deletes invalid tokens from database
@@ -349,7 +390,7 @@ exports.userupdate = functions.https.onRequest((req, res) => {
   let validReq = keys.length === 1 && reqBod[keys[0]].locations && reqBod[keys[0]].locations.length <= 5 && reqBod[keys[0]].locations.length > 0;
   if (validReq) {
     let userRef = db.ref("/users/" + keys[0]);
-    userRef.set(reqBod[keys[0]]).then(() => {
+    userRef.update(reqBod[keys[0]]).then(() => {
       console.log("User sync. Token: " + keys[0]);
       return res.status(200).send();
     }).catch(() => {
