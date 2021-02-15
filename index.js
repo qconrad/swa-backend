@@ -204,11 +204,12 @@ function add_alert(alert, regToken, settings) {
     else {
       let severityIndex = get_severity_index(alProp);
       let map = settings[((alProp.messageType === "Alert") ? "alertMap" : "updateMap")];
-      if (severityIndex < map[0] || severityIndex > map[4] || map[0] === map[4]) { console.log("Out of preference range, not sending"); return; }
+      if (severityIndex < map[0] || severityIndex > map[4] || map[0] === map[4]) {
+        console.log("Out of preference range, not sending"); return; }
       notificationChannel = "low";
-      if (severityIndex >= map[1] && severityIndex < map[2]) notificationChannel = "med";
-      else if (severityIndex >= map[2] && severityIndex < map[3]) notificationChannel = "high";
-      else if (severityIndex >= map[3] && severityIndex < map[4]) notificationChannel = "ext";
+      if (severityIndex >= map[1] && (map[1] !== map[2])) notificationChannel = "med";
+      if (severityIndex >= map[2] && (map[2] !== map[3])) notificationChannel = "high";
+      if (severityIndex >= map[3] && (map[3] !== map[4])) notificationChannel = "ext";
     }
   }
 
