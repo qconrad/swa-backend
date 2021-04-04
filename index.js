@@ -113,15 +113,19 @@ async function parse(data) {
     parseCount++;
     parsed.push(curAlProp.id);
     if (alerts[i].geometry) { // Current alert uses polygon
-      for (let key in users) { // Loop through users
-        if (affects_user(users[key], alerts[i].geometry)) { // Check if zay in da box
+      for (let token in users) { // Loop through users
+        if (affects_user(users[token], alerts[i].geometry)) {
           // Bit of a convoluted statement but cancellation polygons are
           // sometimes put out for entire area including the continued area.
           // This check solves that and only sends the cancellation to the people
           // who are not in the new one
-          let alertContinued = curAlProp.messageType === "Cancel" && ((alerts[i+1] && JSON.stringify(alerts[i+1].properties.references) === JSON.stringify(curAlProp.references) && affects_user(users[key], alerts[i+1].geometry)) || alerts[i-1] && (JSON.stringify(alerts[i-1].properties.references) === JSON.stringify(curAlProp.references) && affects_user(users[key], alerts[i-1].geometry)));
+          let alertContinued = curAlProp.messageType === "Cancel" && ((alerts[i+1] && JSON.stringify(alerts[i+1].properties.references) === JSON.stringify(curAlProp.references) && affects_user(users[token], alerts[i+1].geometry)) || alerts[i-1] && (JSON.stringify(alerts[i-1].properties.references) === JSON.stringify(curAlProp.references) && affects_user(users[token], alerts[i-1].geometry)));
           if (alertContinued) { continue; }
-          add_alert(curAlert, key, users[key].settings); // Yay! day in da box, send it
+          if(users[token].build) { // 2.0 and greater have build numbers
+            console.log("2.0+ User");
+            addAlert(curAlert, token);
+          }
+          add_alert(curAlert, token, users[token].settings);
         }
       }
     }
@@ -137,9 +141,13 @@ async function parse(data) {
               let zone;
               try { zone = JSON.parse(body).geometry; } // Parse the zone
               catch (e) { console.log("Geometry parse error"); reject(new Error("Geometry parse error")); return; }
-              for (let key in users) { // Loop through users
-                if (affects_user(users[key], zone)) { // Check if they're in the zone
-                  add_alert(curAlert, key, users[key].settings); // Send
+              for (let token in users) { // Loop through users
+                if (affects_user(users[token], zone)) { // Check if they're in the zone
+                  if(users[token].build) { // 2.0 and greater have build numbers
+                    console.log("2.0+ User");
+                    addAlert(curAlert, token);
+                  }
+                  add_alert(curAlert, token, users[token].settings); // Send
                 }
               }
             } else { console.log("Zone request error: " + error); }
@@ -152,6 +160,38 @@ async function parse(data) {
   }
   console.log("Parsed " + parseCount + " alerts");
   return Promise.all(promises);
+}
+
+function addAlert(alert, regToken) {
+  const props = alert.properties;
+  let polygon;
+  let zones = [];
+  if (alert.geometry) {
+    polygon = JSON.stringify(alert.geometry.coordinates[0]);
+  } else {
+    let affectedZones = props.affectedZones.slice(0); // Copy array
+    for (let i = 0; i < affectedZones.length; i++) {
+      zones.push(affectedZones[i].substring(30));
+    }
+    zones = JSON.stringify(zones);
+  }
+  let message = { data: {}, token: regToken, android: {priority: "high"} };
+  let payload = message.data;
+  payload.name = props.event;
+  payload.id = props.id;
+  if (props.parameters.NWSheadline[0]) payload.nwsHeadline = props.parameters.NWSheadline[0];
+  payload.description = props.description;
+  if (props.instruction) payload.instruction = props.instruction;
+  payload.type = props.messageType;
+  if (polygon) payload.polygon = polygon;
+  if (zones) payload.zones = zones;
+  payload.sent = props.sent.toString();
+  if (props.onset) payload.onset = props.onset.toString();
+  if (props.expires) payload.expires = props.expires.toString();
+  if (props.ends) payload.ends = props.ends.toString();
+  payload.senderName = props.senderName;
+  payload.senderCode = props.parameters.PIL[0].slice(0,3);
+  messages.push(message);
 }
 
 // Returns true if given user is within given zone
