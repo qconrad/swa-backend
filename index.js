@@ -102,14 +102,14 @@ async function parse(data) {
   let alerts;
   try { alerts = JSON.parse(data).features; }
   catch (e) { return Promise.reject(new Error("Parse error")); }
+  //addAlert(alerts[0], "ejjg0DWnSpOYzUF8mCXvDI:APA91bEqC4es93HIoX03AQ_kGOnnnDHiH6psJMpFgueML6wGgeJeh--WptdiI5RQ0IUxvG0dK_G37UFDw9RRN-D0CaT1VAimjgmnBw0Lqz_Yl_-eKHrQ4lKAWDK2QWItEl_g2t6Xi0UB")
 
   // Loop through alerts
   // Look for users within the zones and notify them
   for (let i = 0; i < 150; i++) {
     const curAlert = alerts[i];
     const curAlProp = alerts[i].properties;
-    if (parsed.includes(curAlProp.id))
-      continue;
+    if (parsed.includes(curAlProp.id)) continue;
     parseCount++;
     parsed.push(curAlProp.id);
     if (alerts[i].geometry) { // Current alert uses polygon
@@ -121,11 +121,12 @@ async function parse(data) {
           // who are not in the new one
           let alertContinued = curAlProp.messageType === "Cancel" && ((alerts[i+1] && JSON.stringify(alerts[i+1].properties.references) === JSON.stringify(curAlProp.references) && affects_user(users[token], alerts[i+1].geometry)) || alerts[i-1] && (JSON.stringify(alerts[i-1].properties.references) === JSON.stringify(curAlProp.references) && affects_user(users[token], alerts[i-1].geometry)));
           if (alertContinued) { continue; }
-          if(users[token].build) { // 2.0 and greater have build numbers
+          if (users[token].build) { // 2.0 and greater have build numbers
             console.log("2.0+ User");
             addAlert(curAlert, token);
+          } else {
+            add_alert(curAlert, token, users[token].settings);
           }
-          add_alert(curAlert, token, users[token].settings);
         }
       }
     }
@@ -146,8 +147,9 @@ async function parse(data) {
                   if(users[token].build) { // 2.0 and greater have build numbers
                     console.log("2.0+ User");
                     addAlert(curAlert, token);
+                  } else {
+                    add_alert(curAlert, token, users[token].settings); // Send
                   }
-                  add_alert(curAlert, token, users[token].settings); // Send
                 }
               }
             } else { console.log("Zone request error: " + error); }
@@ -165,10 +167,13 @@ async function parse(data) {
 function addAlert(alert, regToken) {
   const props = alert.properties;
   let polygon;
-  let zones = [];
+  let polygonType;
+  let zones;
   if (alert.geometry) {
-    polygon = JSON.stringify(alert.geometry.coordinates[0]);
+    polygonType = alert.geometry.type;
+    polygon = JSON.stringify(alert.geometry.coordinates);
   } else {
+    zones = [];
     let affectedZones = props.affectedZones.slice(0); // Copy array
     for (let i = 0; i < affectedZones.length; i++) {
       zones.push(affectedZones[i].substring(30));
@@ -179,11 +184,12 @@ function addAlert(alert, regToken) {
   let payload = message.data;
   payload.name = props.event;
   payload.id = props.id;
-  if (props.parameters.NWSheadline[0]) payload.nwsHeadline = props.parameters.NWSheadline[0];
+  if (props.parameters.NWSheadline) payload.nwsHeadline = props.parameters.NWSheadline[0];
   payload.description = props.description;
   if (props.instruction) payload.instruction = props.instruction;
   payload.type = props.messageType;
   if (polygon) payload.polygon = polygon;
+  if (polygonType) payload.polygonType = polygonType;
   if (zones) payload.zones = zones;
   payload.sent = props.sent.toString();
   if (props.onset) payload.onset = props.onset.toString();
@@ -191,6 +197,7 @@ function addAlert(alert, regToken) {
   if (props.ends) payload.ends = props.ends.toString();
   payload.senderName = props.senderName;
   payload.senderCode = props.parameters.PIL[0].slice(0,3);
+  console.log(message);
   messages.push(message);
 }
 
