@@ -5,6 +5,7 @@ const fetch = require('node-fetch')
 const serviceAccount = require("./serviceAccountKey.json")
 const inside = require('point-in-polygon')
 const UserDao = require('./user-dao.js')
+const StatusDao = require('./status-dao.js')
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -17,7 +18,7 @@ const db = admin.firestore();
 
 const USER_AGENT = '(Severe Weather Alerts, https://github.com/qconrad/severe-weather-alerts)';
 
-let lastModified;  // Time and date of newest data
+let rtLastModified;// Time and date of newest data
 let parsed = [];   // IDs of alerts that have already been parsed and sent
 let users;         // Users pulled from database
 let messages = []; // List of messages to send
@@ -26,7 +27,7 @@ let messages = []; // List of messages to send
 exports.alertsupdate = functions.pubsub.schedule('* * * * *')
   .onRun(() => {
     return new Promise(async(resolve) => {
-      if (!lastModified) await get_last_parse();
+      if (!rtLastModified) await get_last_parse();
       fetch_data().then(async data => {
         messages = []; // Global variables cached by firebase, clear this out
         await get_users();
@@ -49,7 +50,7 @@ exports.alertsupdate = functions.pubsub.schedule('* * * * *')
 function get_last_parse() {
   return Promise.all([
     rtDb.ref("/parsed").once("value", (data) => { parsed = data.val(); }),
-    rtDb.ref("/lastModified").once("value", (data) => { lastModified = data.val(); })
+    rtDb.ref("/lastModified").once("value", (data) => { rtLastModified = data.val(); })
   ]);
 }
 
@@ -59,7 +60,7 @@ function set_last_parse() {
     parsed = parsed.slice(parsed.length - 1000, parsed.length);
   return Promise.all([
     rtDb.ref("/parsed").set(parsed),
-    rtDb.ref("/lastModified").set(lastModified)
+    rtDb.ref("/lastModified").set(rtLastModified)
   ]);
 }
 
@@ -74,16 +75,16 @@ function fetch_data() {
   return new Promise((resolve, reject) => {
     let requestOptions = {
       url: 'https://api.weather.gov/alerts?status=actual',
-      headers: { 'User-Agent': USER_AGENT, "If-Modified-Since": lastModified }
+      headers: { 'User-Agent': USER_AGENT, "If-Modified-Since": rtLastModified }
     };
     request(requestOptions, (error, response, body) => {
       if (!error && response.statusCode === 200) { // Successful response
         // Absolutely make sure the data is newer. Sometimes the
         // "If-Modified-Since" header doesn't work (returns older data)
-        if (Date.parse(response.headers['last-modified']) < Date.parse(lastModified)) {
+        if (Date.parse(response.headers['last-modified']) < Date.parse(rtLastModified)) {
           reject(new Error("Data not newer")); return;
         }
-        lastModified = response.headers['last-modified'];
+        rtLastModified = response.headers['last-modified'];
         resolve(body);
       }
       else if (!error && response.statusCode === 304) { reject(new Error("Data not modified (HTTP 304)")); }
@@ -595,22 +596,41 @@ function validRequest(body) {
 exports.alertssync = functions.pubsub.schedule('*/5 * * * *') .onRun(() => {
   //return syncAlerts();
 });
+let lastModified
+let sentAlertIDs
 
 async function syncAlerts() {
-  fetchAlertData().then(alerts => {
-    console.log(filterSent(alerts))
-    return null;
-  }).catch(err => console.log('error', err))
+  // TODO return promise
+  if (!lastModified) {
+    let statusDao = new StatusDao(db)
+    statusDao.fetchData().then(() => {
+      lastModified = statusDao.getLastModified();
+      sentAlertIDs = statusDao.getSentAlertIDs();
+    }).then(() => fetchAlertData(lastModified).then(alerts => {
+      //console.log(filterSent(alerts))
+      return null;
+    }).catch(err => {console.log('HTTP', err)})
+      .then(() => statusDao.saveStatusToDatabase(lastModified, sentAlertIDs)))
+  }
 }
 
 function filterSent(alerts) {
+  return alerts;
   // TODO:
 }
 
-async function fetchAlertData() {
-  return fetch('http://api.weather.gov/alerts?status=actual', { headers : {
-      'User-Agent': USER_AGENT,
-      //"If-Modified-Since": lastModified
-    }}).then(res => res.json())
+async function fetchAlertData(ifModifiedSince) {
+  return new Promise((resolve, reject) => {
+    fetch('http://api.weather.gov/alerts?status=actual', { headers : {
+        'User-Agent': USER_AGENT,
+        "If-Modified-Since": ifModifiedSince }
+    }).then(res => {
+      if (res.status !== 200) reject(res.status)
+      else {
+        lastModified = res.headers.raw()['last-modified'][0]
+        resolve(res.json())
+      }
+    });
+  })
 }
-//syncAlerts();
+syncAlerts();
