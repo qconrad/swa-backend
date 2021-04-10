@@ -601,17 +601,19 @@ let sentAlertIDs
 
 async function syncAlerts() {
   // TODO return promise
-  if (!lastModified) {
-    let statusDao = new StatusDao(db)
-    statusDao.fetchData().then(() => {
-      lastModified = statusDao.getLastModified();
-      sentAlertIDs = statusDao.getSentAlertIDs();
-    }).then(() => fetchAlertData(lastModified).then(alerts => {
-      //console.log(filterSent(alerts))
-      return null;
-    }).catch(err => {console.log('HTTP', err)})
-      .then(() => statusDao.saveStatusToDatabase(lastModified, sentAlertIDs)))
-  }
+  let statusDao = new StatusDao(db)
+  if (!lastModified) await getStatusFromDatabase(statusDao)
+  fetchAlertData(lastModified).then(alerts => {
+    //console.log(filterSent(alerts))
+    return statusDao.saveStatusToDatabase(lastModified, sentAlertIDs)
+  }).catch(err => { console.log('HTTP', err) })
+}
+
+async function getStatusFromDatabase(statusDao) {
+  return statusDao.fetchData().then(() => {
+    lastModified = statusDao.getLastModified();
+    sentAlertIDs = statusDao.getSentAlertIDs();
+  })
 }
 
 function filterSent(alerts) {
