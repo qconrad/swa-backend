@@ -6,7 +6,10 @@ const serviceAccount = require("./serviceAccountKey.json")
 const inside = require('point-in-polygon')
 const UserDao = require('./user-dao.js')
 const StatusDao = require('./status-dao.js')
-const AlreadySentFilter = require("./already-sent-filter");
+const AlreadySentFilter = require('./already-sent-filter');
+const PolygonListBounds = require('./polygon-list-bounds');
+const BoundCenter = require('./bound-center');
+const geofire = require('geofire-common');
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -606,15 +609,52 @@ async function syncAlerts() {
     if (!lastModified) await getStatusFromDatabase(statusDao)
     fetchAlertData(lastModified).then(alerts => {
       alerts = new AlreadySentFilter(alerts.features, sentAlertIDs).getAlerts().slice(0, 150)
+      let promises = []
       for (let i = 0; i < alerts.length; i++) {
         let alProp = alerts[i].properties
         sentAlertIDs.push(alProp.id)
+        let polygonList = [[[45.0, -89.0],[35.0, -75.0]]];
+        promises.push(getAffectedUsers(polygonList))
       }
       console.log('Parsed', alerts.length, 'alerts')
-      statusDao.saveStatusToDatabase(lastModified, sentAlertIDs).then(() => resolve())
+      Promise.all(promises).then(users => {
+        for (const user of users) {
+          console.log(user)
+        }
+        statusDao.saveStatusToDatabase(lastModified, sentAlertIDs).then(() => resolve())
+      })
     }).catch(err => { console.log(err); resolve() })
   }).then(() => {
     console.log("Alert Sync Complete")
+  })
+}
+
+async function getAffectedUsers(polygonList) {
+  return new Promise(async resolve => {
+    let zoneBounds = new PolygonListBounds(polygonList).getBounds()
+    let center = new BoundCenter(zoneBounds).getCenter()
+    const radiusInM = (geofire.distanceBetween(center, [zoneBounds[3], zoneBounds[0]])) * 1000
+    const bounds = geofire.geohashQueryBounds(center, radiusInM);
+    let promises = []
+    for (const b of bounds) {
+      const snapshot = await db.collection('locations')
+        .orderBy('geohash')
+        .startAt(b[0])
+        .endAt(b[1]);
+      promises.push(snapshot.get())
+    }
+    console.log(promises.length, "queries")
+
+    Promise.all(promises).then((snapshots) => {
+      const affectedUsers = [];
+      for (const snap of snapshots) {
+        for (const doc of snap.docs)
+          affectedUsers.push(doc.data())
+      }
+      return affectedUsers
+    }).then(affectedUsers => {
+      resolve(affectedUsers)
+    })
   })
 }
 
@@ -634,11 +674,11 @@ async function fetchAlertData(ifModifiedSince) {
       if (Date.parse(res.headers['last-modified']) < Date.parse(lastModified)) {
         reject("Data not newer"); return;
       }
-      if (res.status !== 200) reject("HTTP " + res.status)
-      else {
-        lastModified = res.headers.raw()['last-modified'][0]
+      //if (res.status !== 200) reject("HTTP " + res.status)
+      //else {
+        //lastModified = res.headers.raw()['last-modified'][0]
         resolve(res.json())
-      }
+      //}
     });
   })
 }
