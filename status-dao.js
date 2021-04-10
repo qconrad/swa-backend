@@ -1,3 +1,5 @@
+const ListTrim = require('./list-trim')
+
 class StatusDao {
   constructor(db) {
     this.db = db;
@@ -7,7 +9,7 @@ class StatusDao {
   async saveStatusToDatabase(lastModified, sentAlertIDs) {
     return this.statusRef.update({
       lastModified: lastModified,
-      sentAlertIDs: sentAlertIDs
+      sentAlertIDs: new ListTrim(sentAlertIDs, 3500, 1500).getTrimmed()
     });
   }
 
@@ -17,7 +19,7 @@ class StatusDao {
     this.lastModified = data.lastModified
     this.sentAlertIDs = data.sentAlertIDs
   }
-  k
+
   getLastModified() {
     return this.lastModified
   }

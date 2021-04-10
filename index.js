@@ -605,14 +605,16 @@ async function syncAlerts() {
     let statusDao = new StatusDao(db)
     if (!lastModified) await getStatusFromDatabase(statusDao)
     fetchAlertData(lastModified).then(alerts => {
-      alerts = new AlreadySentFilter(alerts.features, sentAlertIDs).getAlerts()
+      alerts = new AlreadySentFilter(alerts.features, sentAlertIDs).getAlerts().slice(0, 150)
       for (let i = 0; i < alerts.length; i++) {
         let alProp = alerts[i].properties
         sentAlertIDs.push(alProp.id)
-        console.log(alProp.id)
       }
+      console.log('Parsed', alerts.length, 'alerts')
       statusDao.saveStatusToDatabase(lastModified, sentAlertIDs).then(() => resolve())
-    }).catch(err => { console.log('HTTP', err); resolve() })
+    }).catch(err => { console.log(err); resolve() })
+  }).then(() => {
+    console.log("Alert Sync Complete")
   })
 }
 
@@ -629,7 +631,10 @@ async function fetchAlertData(ifModifiedSince) {
         'User-Agent': USER_AGENT,
         "If-Modified-Since": ifModifiedSince }
     }).then(res => {
-      if (res.status !== 200) reject(res.status)
+      if (Date.parse(res.headers['last-modified']) < Date.parse(lastModified)) {
+        reject("Data not newer"); return;
+      }
+      if (res.status !== 200) reject("HTTP " + res.status)
       else {
         lastModified = res.headers.raw()['last-modified'][0]
         resolve(res.json())
@@ -641,5 +646,4 @@ async function fetchAlertData(ifModifiedSince) {
 test()
 async function test() {
   await syncAlerts();
-  console.log("Alert Sync Complete")
 }
