@@ -574,12 +574,15 @@ const alertStyle = {
   "Winter Weather Advisory": { icon: "snow", color: "#7B68EE" }
 }
 
-// Called when user makes request to update their location or register
+// Version 2.0 Stuff below this line
+// Everything above will soon be deprecated and eventually removed completely
+// -------------------------------------------------------------------------
+
+// Called when user makes request to sync their location(s)
 // Validates request and updates database accordingly
 exports.usersync = functions.https.onRequest((req, res) => {
-  let body = req.body
-  if (validRequest(body)) {
-      new UserDao(body).addToDatabase()
+  if (validRequest(req.body)) {
+      new UserDao(req.body).addToDatabase()
         .then(() => { return res.status(200).send() })
         .catch(() => { return res.status(500).send() })
   }
