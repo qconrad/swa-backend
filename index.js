@@ -6,6 +6,7 @@ const serviceAccount = require("./serviceAccountKey.json")
 const inside = require('point-in-polygon')
 const UserDao = require('./user-dao.js')
 const StatusDao = require('./status-dao.js')
+const AlreadySentFilter = require("./already-sent-filter");
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -600,13 +601,19 @@ let lastModified
 let sentAlertIDs
 
 async function syncAlerts() {
-  // TODO return promise
-  let statusDao = new StatusDao(db)
-  if (!lastModified) await getStatusFromDatabase(statusDao)
-  fetchAlertData(lastModified).then(alerts => {
-    //console.log(filterSent(alerts))
-    return statusDao.saveStatusToDatabase(lastModified, sentAlertIDs)
-  }).catch(err => { console.log('HTTP', err) })
+  return new Promise(async resolve => {
+    let statusDao = new StatusDao(db)
+    if (!lastModified) await getStatusFromDatabase(statusDao)
+    fetchAlertData(lastModified).then(alerts => {
+      alerts = new AlreadySentFilter(alerts.features, sentAlertIDs).getAlerts()
+      for (let i = 0; i < alerts.length; i++) {
+        let alProp = alerts[i].properties
+        sentAlertIDs.push(alProp.id)
+        console.log(alProp.id)
+      }
+      statusDao.saveStatusToDatabase(lastModified, sentAlertIDs).then(() => resolve())
+    }).catch(err => { console.log('HTTP', err); resolve() })
+  })
 }
 
 async function getStatusFromDatabase(statusDao) {
@@ -614,11 +621,6 @@ async function getStatusFromDatabase(statusDao) {
     lastModified = statusDao.getLastModified();
     sentAlertIDs = statusDao.getSentAlertIDs();
   })
-}
-
-function filterSent(alerts) {
-  return alerts;
-  // TODO:
 }
 
 async function fetchAlertData(ifModifiedSince) {
@@ -635,4 +637,9 @@ async function fetchAlertData(ifModifiedSince) {
     });
   })
 }
-syncAlerts();
+
+test()
+async function test() {
+  await syncAlerts();
+  console.log("Alert Sync Complete")
+}
