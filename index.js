@@ -4,7 +4,7 @@ const admin = require("firebase-admin");
 const request = require('request');
 const serviceAccount = require("./serviceAccountKey.json");
 const inside = require('point-in-polygon');
-const geofire = require("geofire-common");
+const UserDao = require('./user-dao.js')
 
 // Init this stuff
 admin.initializeApp({
@@ -12,14 +12,12 @@ admin.initializeApp({
   databaseURL: "https://severe-weather-alerts.firebaseio.com"
 });
 
-// Database object
+// In the process of switching to firestore, realtime database will be removed later
 const rtDb = admin.database();
 const db = admin.firestore();
 
-// Let NWS know who's making all these requests
 const USER_AGENT = '(Severe Weather Alerts, https://github.com/qconrad/severe-weather-alerts)';
 
-// Keep track of these things
 let lastModified;  // Time and date of newest data
 let parsed = [];   // IDs of alerts that have already been parsed and sent
 let users;         // Users pulled from database
@@ -579,41 +577,15 @@ const alertStyle = {
 // Called when user makes request to update their location or register
 // Validates request and updates database accordingly
 exports.usersync = functions.https.onRequest((req, res) => {
-  let body = req.body;
-  if (validRequest(body)) addToDatabase(body).then(() => { return res.status(200).send(); });
+  let body = req.body
+  if (validRequest(body)) {
+      new UserDao(body).addToDatabase()
+        .then(() => { return res.status(200).send() })
+        .catch(() => { return res.status(500).send() })
+  }
   else return res.status(400).send();
 });
 
 function validRequest(body) {
   return true; // TODO
 }
-
-async function addToDatabase(syncJson) {
-  let promises = [];
-  const userLocations = await db.collection('locations').where('token', '==', syncJson.token).get();
-  if (userLocations.empty) {
-    promises.push(deleteTokenFromRealtimeDatabase(syncJson.token));
-    promises.push(addNewUser(syncJson.token, syncJson.locations[0][0], syncJson.locations[0][1]))
-  }
-  userLocations.forEach(location => {
-    promises.push(updateExistingLocation(location, syncJson.locations[0][0], syncJson.locations[0][1]));
-  });
-  console.log('User sync:', syncJson.token)
-  return Promise.all(promises);
-}
-
-async function addNewUser(token, lat, lon) {
-  return db.collection('locations').add({
-    token: token,
-    coordinate: new admin.firestore.GeoPoint(lat, lon),
-    geohash: geofire.geohashForLocation([lat, lon])
-  });
-}
-
-async function updateExistingLocation(locationDoc, lat, lon) {
-  return locationDoc.ref.update({
-    coordinate: new admin.firestore.GeoPoint(lat, lon),
-    geohash: geofire.geohashForLocation([lat, lon])
-  })
-}
-
