@@ -1,8 +1,9 @@
-const functions = require('firebase-functions');
-const admin = require("firebase-admin");
-const request = require('request');
-const serviceAccount = require("./serviceAccountKey.json");
-const inside = require('point-in-polygon');
+const functions = require('firebase-functions')
+const admin = require("firebase-admin")
+const request = require('request')
+const fetch = require('node-fetch')
+const serviceAccount = require("./serviceAccountKey.json")
+const inside = require('point-in-polygon')
 const UserDao = require('./user-dao.js')
 
 admin.initializeApp({
@@ -590,3 +591,26 @@ exports.usersync = functions.https.onRequest((req, res) => {
 function validRequest(body) {
   return true; // TODO
 }
+
+exports.alertssync = functions.pubsub.schedule('*/5 * * * *') .onRun(() => {
+  //return syncAlerts();
+});
+
+async function syncAlerts() {
+  fetchAlertData().then(alerts => {
+    console.log(filterSent(alerts))
+    return null;
+  }).catch(err => console.log('error', err))
+}
+
+function filterSent(alerts) {
+  // TODO:
+}
+
+async function fetchAlertData() {
+  return fetch('http://api.weather.gov/alerts?status=actual', { headers : {
+      'User-Agent': USER_AGENT,
+      //"If-Modified-Since": lastModified
+    }}).then(res => res.json())
+}
+//syncAlerts();
