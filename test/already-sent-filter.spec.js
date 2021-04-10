@@ -20,3 +20,10 @@ test('two alerts given, one filtered out',  () => {
   let alreadySentFilter = new AlreadySentFilter(alerts, sentAlertIDs)
   expect(alreadySentFilter.getAlerts().length).toBe(1)
 });
+
+test('four alerts given, middle two filtered out',  () => {
+  let alerts = [{properties: { id: 'test 1'}},{properties: { id: 'test 2'}},{properties: { id: 'test 3'}},{properties: { id: 'test 4'}}];
+  let sentAlertIDs = ['test 2', 'test 3'];
+  let alreadySentFilter = new AlreadySentFilter(alerts, sentAlertIDs)
+  expect(alreadySentFilter.getAlerts()[1].properties.id).toBe("test 4")
+});
