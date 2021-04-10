@@ -1,4 +1,3 @@
-// We need this stuff
 const functions = require('firebase-functions');
 const admin = require("firebase-admin");
 const request = require('request');
@@ -6,7 +5,6 @@ const serviceAccount = require("./serviceAccountKey.json");
 const inside = require('point-in-polygon');
 const UserDao = require('./user-dao.js')
 
-// Init this stuff
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
   databaseURL: "https://severe-weather-alerts.firebaseio.com"
@@ -425,7 +423,7 @@ async function send_messages() {
 
 // Helper function to delete user given their token
 function deleteTokenFromRealtimeDatabase(token) {
-  console.log("Deleting token from realtime database: " + token);
+  console.log("Deleting token:", token);
   return rtDb.ref("/users/" + token).remove();
 }
 
@@ -582,7 +580,7 @@ const alertStyle = {
 // Validates request and updates database accordingly
 exports.usersync = functions.https.onRequest((req, res) => {
   if (validRequest(req.body)) {
-      new UserDao(req.body).addToDatabase()
+      new UserDao(admin, req.body).addToDatabase()
         .then(() => { return res.status(200).send() })
         .catch(() => { return res.status(500).send() })
   }

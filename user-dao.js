@@ -2,41 +2,49 @@ const geofire = require("geofire-common");
 
 class UserDao {
   #userSyncJson;
+  #admin;
+  #db;
 
-  constructor(userSyncJson) {
+  constructor(firebaseAdmin, userSyncJson) {
     this.#userSyncJson = userSyncJson;
+    this.#admin = firebaseAdmin;
+    this.#db = firebaseAdmin.firestore();
   }
 
   async addToDatabase() {
     let promises = [];
-    const userLocations = await db.collection('locations').where('token', '==', syncJson.token).get();
-
+    const userLocations = await this.#db.collection('locations').where('token', '==', this.#userSyncJson.token).get();
     if (userLocations.empty) {
-      promises.push(deleteTokenFromRealtimeDatabase(syncJson.token));
-      promises.push(UserDao.#addNewUser(syncJson.token, syncJson.locations[0][0], syncJson.locations[0][1]))
-      console.log('New user:', syncJson.token)
+      promises.push(this.#deleteTokenFromRealtimeDatabase(this.#userSyncJson.token));
+      promises.push(this.#addNewUser(this.#userSyncJson.token, this.#userSyncJson.locations[0][0], this.#userSyncJson.locations[0][1]))
+      console.log('New user:', this.#userSyncJson.token)
     }
     userLocations.forEach(location => {
-      promises.push(UserDao.#updateExistingLocation(location, syncJson.locations[0][0], syncJson.locations[0][1]));
-      console.log('Location update:', syncJson.token)
+      promises.push(this.#updateExistingLocation(location, this.#userSyncJson.locations[0][0], this.#userSyncJson.locations[0][1]));
+      console.log('Location update:', this.#userSyncJson.token)
     });
     return Promise.all(promises);
   }
 
-  static async #addNewUser(token, lat, lon) {
-    return db.collection('locations').add({
+  async #addNewUser(token, lat, lon) {
+    return this.#db.collection('locations').add({
       token: token,
       index: 0,
-      coordinate: new admin.firestore.GeoPoint(lat, lon),
+      coordinate: new this.#admin.firestore.GeoPoint(lat, lon),
       geohash: geofire.geohashForLocation([lat, lon])
     });
   }
 
-  static async #updateExistingLocation(locationDoc, lat, lon) {
+  async #updateExistingLocation(locationDoc, lat, lon) {
     return locationDoc.ref.update({
-      coordinate: new admin.firestore.GeoPoint(lat, lon),
+      coordinate: new this.#admin.firestore.GeoPoint(lat, lon),
       geohash: geofire.geohashForLocation([lat, lon])
     })
+  }
+
+  async #deleteTokenFromRealtimeDatabase(token) {
+    console.log("Deleting token from realtime database: " + token);
+    return this.#admin.database().ref("/users/" + token).remove();
   }
 }
 module.exports = UserDao
