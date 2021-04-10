@@ -4,6 +4,7 @@ const admin = require("firebase-admin");
 const request = require('request');
 const serviceAccount = require("./serviceAccountKey.json");
 const inside = require('point-in-polygon');
+const geofire = require("geofire-common");
 
 // Init this stuff
 admin.initializeApp({
@@ -12,7 +13,8 @@ admin.initializeApp({
 });
 
 // Database object
-const db = admin.database();
+const rtDb = admin.database();
+const db = admin.firestore();
 
 // Let NWS know who's making all these requests
 const USER_AGENT = '(Severe Weather Alerts, https://github.com/qconrad/severe-weather-alerts)';
@@ -49,8 +51,8 @@ exports.alertsupdate = functions.pubsub.schedule('* * * * *')
 // Get last parse information from database, store in global variables
 function get_last_parse() {
   return Promise.all([
-    db.ref("/parsed").once("value", (data) => { parsed = data.val(); }),
-    db.ref("/lastModified").once("value", (data) => { lastModified = data.val(); })
+    rtDb.ref("/parsed").once("value", (data) => { parsed = data.val(); }),
+    rtDb.ref("/lastModified").once("value", (data) => { lastModified = data.val(); })
   ]);
 }
 
@@ -59,14 +61,14 @@ function set_last_parse() {
   if (parsed.length > 3500) // If the list gets too big, chop off old alerts
     parsed = parsed.slice(parsed.length - 1000, parsed.length);
   return Promise.all([
-    db.ref("/parsed").set(parsed),
-    db.ref("/lastModified").set(lastModified)
+    rtDb.ref("/parsed").set(parsed),
+    rtDb.ref("/lastModified").set(lastModified)
   ]);
 }
 
 // Gets all users from database, store in users variable
 // Downloads a decent amount of data so only use when new data is available
-function get_users() { return db.ref("/users").once("value", (data) => { users = data.val(); }); }
+function get_users() { return rtDb.ref("/users").once("value", (data) => { users = data.val(); }); }
 
 // Requests alerts from api.weather.gov
 // Returns promise that resolves to returned data
@@ -409,7 +411,7 @@ async function send_messages() {
       for (let i = 0; i < response.responses.length; i++) {
         if (!response.responses[i].success) {
           if (response.responses[i].error.code === "messaging/registration-token-not-registered") {
-            promises.push(delete_token_from_database(messages[i].token));
+            promises.push(deleteTokenFromRealtimeDatabase(messages[i].token));
           } else { console.log(response.responses[i].error); }
         }
       }
@@ -424,9 +426,9 @@ async function send_messages() {
 }
 
 // Helper function to delete user given their token
-function delete_token_from_database(token) {
-  console.log("Deleting token: " + token);
-  return db.ref("/users/" + token).remove();
+function deleteTokenFromRealtimeDatabase(token) {
+  console.log("Deleting token from realtime database: " + token);
+  return rtDb.ref("/users/" + token).remove();
 }
 
 // Called when user makes request to update their location or register
@@ -437,7 +439,7 @@ exports.userupdate = functions.https.onRequest((req, res) => {
   // TODO: make this regex and do more robust validation
   let validReq = keys.length === 1 && reqBod[keys[0]].locations && reqBod[keys[0]].locations.length <= 5 && reqBod[keys[0]].locations.length > 0;
   if (validReq) {
-    let userRef = db.ref("/users/" + keys[0]);
+    let userRef = rtDb.ref("/users/" + keys[0]);
     userRef.update(reqBod[keys[0]]).then(() => {
       console.log("User sync. Token: " + keys[0]);
       return res.status(200).send();
@@ -573,3 +575,45 @@ const alertStyle = {
   "Winter Storm Watch": { icon: "snow", color: "#4682B4" },
   "Winter Weather Advisory": { icon: "snow", color: "#7B68EE" }
 }
+
+// Called when user makes request to update their location or register
+// Validates request and updates database accordingly
+exports.usersync = functions.https.onRequest((req, res) => {
+  let body = req.body;
+  if (validRequest(body)) addToDatabase(body).then(() => { return res.status(200).send(); });
+  else return res.status(400).send();
+});
+
+function validRequest(body) {
+  return true; // TODO
+}
+
+async function addToDatabase(syncJson) {
+  let promises = [];
+  const userLocations = await db.collection('locations').where('token', '==', syncJson.token).get();
+  if (userLocations.empty) {
+    promises.push(deleteTokenFromRealtimeDatabase(syncJson.token));
+    promises.push(addNewUser(syncJson.token, syncJson.locations[0][0], syncJson.locations[0][1]))
+  }
+  userLocations.forEach(location => {
+    promises.push(updateExistingLocation(location, syncJson.locations[0][0], syncJson.locations[0][1]));
+  });
+  console.log('User sync:', syncJson.token)
+  return Promise.all(promises);
+}
+
+async function addNewUser(token, lat, lon) {
+  return db.collection('locations').add({
+    token: token,
+    coordinate: new admin.firestore.GeoPoint(lat, lon),
+    geohash: geofire.geohashForLocation([lat, lon])
+  });
+}
+
+async function updateExistingLocation(locationDoc, lat, lon) {
+  return locationDoc.ref.update({
+    coordinate: new admin.firestore.GeoPoint(lat, lon),
+    geohash: geofire.geohashForLocation([lat, lon])
+  })
+}
+
