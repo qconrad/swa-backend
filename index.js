@@ -9,6 +9,7 @@ const StatusDao = require('./status-dao.js')
 const AlreadySentFilter = require('./already-sent-filter');
 const PolygonListBounds = require('./polygon-list-bounds');
 const BoundCenter = require('./bound-center');
+const AlertPolygons = require('./alert-polygons');
 const geofire = require('geofire-common');
 
 admin.initializeApp({
@@ -608,13 +609,14 @@ async function syncAlerts() {
     let statusDao = new StatusDao(db)
     if (!lastModified) await getStatusFromDatabase(statusDao)
     fetchAlertData(lastModified).then(alerts => {
-      alerts = new AlreadySentFilter(alerts.features, sentAlertIDs).getAlerts().slice(0, 150)
+      alerts = new AlreadySentFilter(alerts.features, sentAlertIDs).getAlerts().slice(0, 15)
       let promises = []
       for (let i = 0; i < alerts.length; i++) {
         let alProp = alerts[i].properties
         sentAlertIDs.push(alProp.id)
-        let polygonList = [[[45.0, -89.0],[35.0, -75.0]]];
-        promises.push(getAffectedUsers(polygonList))
+        if (alerts[i].geometry) {
+          promises.push(getAffectedUsers(new AlertPolygons(alerts[i]).getPolygons()))
+        }
       }
       console.log('Parsed', alerts.length, 'alerts')
       Promise.all(promises).then(users => {
@@ -633,7 +635,7 @@ async function getAffectedUsers(polygonList) {
   return new Promise(async resolve => {
     let zoneBounds = new PolygonListBounds(polygonList).getBounds()
     let center = new BoundCenter(zoneBounds).getCenter()
-    const radiusInM = (geofire.distanceBetween(center, [zoneBounds[3], zoneBounds[0]])) * 1000
+    const radiusInM = (geofire.distanceBetween(center, [zoneBounds[0], zoneBounds[3]])) * 1000
     const bounds = geofire.geohashQueryBounds(center, radiusInM);
     let promises = []
     for (const b of bounds) {
@@ -674,11 +676,11 @@ async function fetchAlertData(ifModifiedSince) {
       if (Date.parse(res.headers['last-modified']) < Date.parse(lastModified)) {
         reject("Data not newer"); return;
       }
-      //if (res.status !== 200) reject("HTTP " + res.status)
-      //else {
-        //lastModified = res.headers.raw()['last-modified'][0]
+      if (res.status !== 200) reject("HTTP " + res.status)
+      else {
+        lastModified = res.headers.raw()['last-modified'][0]
         resolve(res.json())
-      //}
+      }
     });
   })
 }

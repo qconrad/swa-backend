@@ -9,7 +9,7 @@ class StatusDao {
   async saveStatusToDatabase(lastModified, sentAlertIDs) {
     return this.statusRef.update({
       lastModified: lastModified,
-      sentAlertIDs: new ListTrim(sentAlertIDs, 3500, 1500).getTrimmed()
+      sentAlertIDs: new ListTrim(sentAlertIDs, 1500, 500).getTrimmed()
     });
   }
 
@@ -28,4 +28,5 @@ class StatusDao {
     return this.sentAlertIDs
   }
 }
+
 module.exports = StatusDao
