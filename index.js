@@ -601,63 +601,63 @@ function validRequest(body) {
 exports.alertssync = functions.pubsub.schedule('*/5 * * * *') .onRun(() => {
   //return syncAlerts();
 });
+
 let lastModified
 let sentAlertIDs
 
 async function syncAlerts() {
-  return new Promise(async resolve => {
-    let statusDao = new StatusDao(db)
-    if (!lastModified) await getStatusFromDatabase(statusDao)
-    fetchAlertData(lastModified).then(alerts => {
-      alerts = new AlreadySentFilter(alerts.features, sentAlertIDs).getAlerts().slice(0, 15)
-      let promises = []
-      for (let i = 0; i < alerts.length; i++) {
-        let alProp = alerts[i].properties
-        sentAlertIDs.push(alProp.id)
-        if (alerts[i].geometry) {
-          promises.push(getAffectedUsers(new AlertPolygons(alerts[i]).getPolygons()))
-        }
-      }
-      console.log('Parsed', alerts.length, 'alerts')
-      Promise.all(promises).then(users => {
-        for (const user of users) {
-          console.log(user)
-        }
-        statusDao.saveStatusToDatabase(lastModified, sentAlertIDs).then(() => resolve())
-      })
-    }).catch(err => { console.log(err); resolve() })
-  }).then(() => {
+  if (!lastModified) await getStatusFromDatabase(new StatusDao(db))
+  fetchAlertData(lastModified).then(async alerts => {
+    await parseAlerts(alerts)
+    await new StatusDao(db).saveStatusToDatabase(lastModified, sentAlertIDs)
+  }).catch(err => console.log(err)).then(() => {
     console.log("Alert Sync Complete")
   })
 }
 
-async function getAffectedUsers(polygonList) {
-  return new Promise(async resolve => {
-    let zoneBounds = new PolygonListBounds(polygonList).getBounds()
-    let center = new BoundCenter(zoneBounds).getCenter()
-    const radiusInM = (geofire.distanceBetween(center, [zoneBounds[0], zoneBounds[3]])) * 1000
-    const bounds = geofire.geohashQueryBounds(center, radiusInM);
-    let promises = []
-    for (const b of bounds) {
-      const snapshot = await db.collection('locations')
-        .orderBy('geohash')
-        .startAt(b[0])
-        .endAt(b[1]);
-      promises.push(snapshot.get())
+async function parseAlerts(alerts) {
+  let filtered = new AlreadySentFilter(alerts.features, sentAlertIDs).getAlerts().slice(0, 150)
+  let promises = []
+  for (let i = 0; i < filtered.length; i++) {
+    const alProp = filtered[i].properties
+    sentAlertIDs.push(alProp.id)
+    if (filtered[i].geometry) {
+      promises.push(getAffectedUsers(new AlertPolygons(filtered[i]).getPolygons()).then(affectedUsers => {
+        // alProp's affected users
+      }))
     }
-    console.log(promises.length, "queries")
+  }
+  console.log('Parsed', filtered.length, 'alerts')
+  return Promise.all(promises)
+}
 
-    Promise.all(promises).then((snapshots) => {
+async function getAffectedUsers(polygonList) {
+  return new Promise(resolve => {
+    queryNearbyUsers(polygonList).then(snapshots => {
       const affectedUsers = [];
       for (const snap of snapshots) {
         for (const doc of snap.docs)
           affectedUsers.push(doc.data())
       }
-      return affectedUsers
-    }).then(affectedUsers => {
       resolve(affectedUsers)
     })
   })
+}
+
+async function queryNearbyUsers(polygonList) {
+  let zoneBounds = new PolygonListBounds(polygonList).getBounds()
+  let center = new BoundCenter(zoneBounds).getCenter()
+  const radiusInM = (geofire.distanceBetween(center, [zoneBounds[0], zoneBounds[3]])) * 1000
+  const bounds = geofire.geohashQueryBounds(center, radiusInM)
+  let promises = []
+  for (const b of bounds) {
+    const snapshot = await db.collection('locations')
+      .orderBy('geohash')
+      .startAt(b[0])
+      .endAt(b[1]);
+    promises.push(snapshot.get())
+  }
+  return Promise.all(promises)
 }
 
 async function getStatusFromDatabase(statusDao) {
@@ -673,9 +673,7 @@ async function fetchAlertData(ifModifiedSince) {
         'User-Agent': USER_AGENT,
         "If-Modified-Since": ifModifiedSince }
     }).then(res => {
-      if (Date.parse(res.headers['last-modified']) < Date.parse(lastModified)) {
-        reject("Data not newer"); return;
-      }
+      if (Date.parse(res.headers['last-modified']) < Date.parse(lastModified)) { reject("Data not newer"); return; }
       if (res.status !== 200) reject("HTTP " + res.status)
       else {
         lastModified = res.headers.raw()['last-modified'][0]
