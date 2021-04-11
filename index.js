@@ -81,7 +81,7 @@ function fetch_data() {
     let requestOptions = {
       url: 'https://api.weather.gov/alerts?status=actual',
       headers: { 'User-Agent': USER_AGENT, "If-Modified-Since": rtLastModified }
-    };
+   };
     request(requestOptions, (error, response, body) => {
       if (!error && response.statusCode === 200) { // Successful response
         // Absolutely make sure the data is newer. Sometimes the
@@ -607,28 +607,45 @@ let sentAlertIDs
 
 async function syncAlerts() {
   if (!lastModified) await getStatusFromDatabase(new StatusDao(db))
-  fetchAlertData(lastModified).then(async alerts => {
-    await parseAlerts(alerts)
-    await new StatusDao(db).saveStatusToDatabase(lastModified, sentAlertIDs)
+  fetchAlertData(lastModified).then(alerts => {
+    parseAlerts(alerts).then(messages => {
+      //console.log(messages)
+    })//.then(() => new StatusDao(db).saveStatusToDatabase(lastModified, sentAlertIDs))
   }).catch(err => console.log(err)).then(() => {
     console.log("Alert Sync Complete")
   })
 }
 
+async function getMessages(al) {
+  return new Promise(resolve =>
+    getAlertZoneArea(al).then(polygonList => getAffectedUsers(polygonList)).then(users => {
+      console.log(al.properties.event, users)
+      resolve()
+    })
+  )
+}
+
+async function getAlertZoneArea(al) {
+  return new AlertPolygons(al).getPolygons()
+}
+
 async function parseAlerts(alerts) {
-  let filtered = new AlreadySentFilter(alerts.features, sentAlertIDs).getAlerts().slice(0, 150)
-  let promises = []
-  for (let i = 0; i < filtered.length; i++) {
-    const alProp = filtered[i].properties
-    sentAlertIDs.push(alProp.id)
-    if (filtered[i].geometry) {
-      promises.push(getAffectedUsers(new AlertPolygons(filtered[i]).getPolygons()).then(affectedUsers => {
-        // alProp's affected users
+  return new Promise(async resolve => {
+    let filtered = new AlreadySentFilter(alerts.features, sentAlertIDs).getAlerts().slice(0, 150)
+    let firebase_messages = []
+    let promises = []
+    for (let i = 0; i < filtered.length; i++) {
+      const al = filtered[i]
+      const alProp = filtered[i].properties
+      sentAlertIDs.push(alProp.id)
+      promises.push(getMessages(al).then(messages => {
+        firebase_messages.push(messages)
       }))
     }
-  }
-  console.log('Parsed', filtered.length, 'alerts')
-  return Promise.all(promises)
+    console.log('Parsed', filtered.length, 'alerts')
+    await Promise.all(promises)
+    resolve(firebase_messages)
+  })
 }
 
 async function getAffectedUsers(polygonList) {
@@ -671,8 +688,8 @@ async function fetchAlertData(ifModifiedSince) {
   return new Promise((resolve, reject) => {
     fetch('http://api.weather.gov/alerts?status=actual', { headers : {
         'User-Agent': USER_AGENT,
-        "If-Modified-Since": ifModifiedSince }
-    }).then(res => {
+        // "If-Modified-Since": ifModifiedSince }
+      }}).then(res => {
       if (Date.parse(res.headers['last-modified']) < Date.parse(lastModified)) { reject("Data not newer"); return; }
       if (res.status !== 200) reject("HTTP " + res.status)
       else {

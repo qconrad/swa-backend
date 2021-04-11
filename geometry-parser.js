@@ -6,13 +6,17 @@ class GeometryParser {
   parse() {
     let polygonList = []
     for (let p = 0; p < this.geometry.coordinates.length; p++) {
-      let polygon = []
-      for (let c = 0; c < this.geometry.coordinates[p].length; c++) {
-        polygon.push(this.geometry.coordinates[p][c].reverse())
-      }
-      polygonList.push(polygon)
+      let coordinates = this.geometry.coordinates[p]
+      if (this.geometry.type === "MultiPolygon") coordinates = coordinates[0]
+      polygonList.push(this._getPolygon(coordinates))
     }
     return polygonList
+  }
+
+  _getPolygon(coordinates) {
+    let polygon = []
+    for (const coordinate of coordinates) polygon.push(coordinate.reverse())
+    return polygon
   }
 }
 

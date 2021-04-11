@@ -107,3 +107,12 @@ test('geometry given, second polygon count correct', () => {
   let parsed = new GeometryParser(geometry).parse()
   expect(parsed[1].length).toBe(3)
 });
+
+test('geometry given, test', () => {
+  let geometry = {
+    "type":"MultiPolygon",
+    "coordinates": [[[[30.0, 20.0], [45.0, 40.0], [10.0, 40.0], [30.0, 20.0]]], [[[15.0, 5.0], [40.0, 10.0], [10.0, 20.0], [5.0, 10.0], [15.0, 5.0]]]]
+  }
+  let parsed = new GeometryParser(geometry).parse()
+  expect(parsed[0].length).toBe(4)
+});
