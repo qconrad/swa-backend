@@ -610,9 +610,10 @@ async function syncAlerts() {
   fetchAlertData(lastModified).then(alerts => {
     parseAlerts(alerts).then(messages => {
       //console.log(messages)
-    })//.then(() => new StatusDao(db).saveStatusToDatabase(lastModified, sentAlertIDs))
-  }).catch(err => console.log(err)).then(() => {
-    console.log("Alert Sync Complete")
+    }).then(() => new StatusDao(db).saveStatusToDatabase(lastModified, sentAlertIDs))
+      .then(() => console.log("Alert Sync Complete"))
+  }).catch(err => {
+    console.log(err)
   })
 }
 
@@ -664,10 +665,10 @@ async function getAffectedUsers(polygonList) {
 async function queryNearbyUsers(polygonList) {
   let zoneBounds = new PolygonListBounds(polygonList).getBounds()
   let center = new BoundCenter(zoneBounds).getCenter()
-  const radiusInM = (geofire.distanceBetween(center, [zoneBounds[0], zoneBounds[3]])) * 1000
-  const bounds = geofire.geohashQueryBounds(center, radiusInM)
+  const radiusKm = (geofire.distanceBetween(center, [zoneBounds[0], zoneBounds[3]]))
+  const queryBounds = geofire.geohashQueryBounds(center, radiusKm)
   let promises = []
-  for (const b of bounds) {
+  for (const b of queryBounds) {
     const snapshot = await db.collection('locations')
       .orderBy('geohash')
       .startAt(b[0])
@@ -686,10 +687,8 @@ async function getStatusFromDatabase(statusDao) {
 
 async function fetchAlertData(ifModifiedSince) {
   return new Promise((resolve, reject) => {
-    fetch('http://api.weather.gov/alerts?status=actual', { headers : {
-        'User-Agent': USER_AGENT,
-        // "If-Modified-Since": ifModifiedSince }
-      }}).then(res => {
+    fetch('http://api.weather.gov/alerts?status=actual', { headers : { 'User-Agent': USER_AGENT, "If-Modified-Since": ifModifiedSince }
+    }).then(res => {
       if (Date.parse(res.headers['last-modified']) < Date.parse(lastModified)) { reject("Data not newer"); return; }
       if (res.status !== 200) reject("HTTP " + res.status)
       else {
