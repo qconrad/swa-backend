@@ -618,6 +618,7 @@ async function syncAlerts() {
 
 
 async function sendMessages(messages) {
+  if (messages.length <= 0) return
   return admin.messaging().sendAll(messages).then(response => parseResponse(response))
 }
 
