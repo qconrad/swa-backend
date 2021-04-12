@@ -15,13 +15,15 @@ class AlertPolygons {
   _getPolygonsFromZoneLinks() {
     let fetchPromises = []
     let polygons = []
-    for (const alertZone of this.alert.properties.affectedZones) {
-      fetchPromises.push(fetch(alertZone, {headers: {'User-Agent': this.userAgent}})
-        .then(res => res.json().then(zoneInfo =>
-          this._parseZone(zoneInfo, polygons)
-        )))
-    }
+    for (const alertZone of this.alert.properties.affectedZones)
+      fetchPromises.push(this._getZonePolygons(alertZone, polygons))
     return Promise.all(fetchPromises).then(() => { return polygons })
+  }
+
+  async _getZonePolygons(alertZone, polygons) {
+    return fetch(alertZone, {headers: {'User-Agent': this.userAgent}})
+      .then(res => res.json())
+      .then(zoneInfo => this._parseZone(zoneInfo, polygons))
   }
 
   _parseZone(zoneInfo, polygons) {

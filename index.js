@@ -614,8 +614,8 @@ async function syncAlerts() {
   return fetchAlertData(lastModified)
     .then(alerts => parseAlerts(alerts))
     .then(messages => new StatusDao(db).saveStatusToDatabase(lastModified, sentAlertIDs))
-    .then(() => console.log("Alert Sync Complete"))
-    .catch(err => console.log(err))
+    .catch(error => console.log(error.message))
+    .finally(() => console.log("Alert Sync Complete"))
 }
 
 async function getMessages(al) {
@@ -681,8 +681,8 @@ async function getStatusFromDatabase(statusDao) {
 }
 
 async function parseResponse(res) {
-  if (Date.parse(res.headers['last-modified']) < Date.parse(lastModified)) console.log("Data not newer")
-  else if (res.status !== 200) console.log("HTTP", res.status)
+  if (Date.parse(res.headers['last-modified']) < Date.parse(lastModified)) return Promise.reject(new Error("Returned data not newer"))
+  else if (res.status !== 200) return Promise.reject(new Error('HTTP ' + res.status))
   else {
     lastModified = res.headers.raw()['last-modified'][0]
     return res.json()
@@ -691,7 +691,7 @@ async function parseResponse(res) {
 
 async function fetchAlertData(ifModifiedSince) {
   return fetch('http://api.weather.gov/alerts?status=actual', {headers : { 'User-Agent': USER_AGENT, "If-Modified-Since": ifModifiedSince }})
-    .then(res => parseResponse(res))
+    .then(res => parseResponse(res)).catch(errorCode => Promise.reject(new Error(errorCode.message)))
 }
 //
 // test()
