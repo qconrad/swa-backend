@@ -10,6 +10,7 @@ const AlreadySentFilter = require('./already-sent-filter');
 const PolygonListBounds = require('./polygon-list-bounds');
 const BoundCenter = require('./bound-center');
 const AlertPolygons = require('./alert-polygons');
+const InsidePolygonList = require('./inside-polygon-list');
 const geofire = require('geofire-common');
 
 admin.initializeApp({
@@ -646,8 +647,11 @@ async function getAffectedUsers(polygonList) {
   return queryNearbyUsers(polygonList).then(snapshots => {
     const affectedUsers = []
     for (const snap of snapshots) {
-      for (const doc of snap.docs)
-        affectedUsers.push(doc.data())
+      for (const doc of snap.docs) {
+        let user = doc.data()
+        if (new InsidePolygonList(polygonList, [user.coordinate.latitude, user.coordinate.longitude]).isInside())
+          affectedUsers.push(user)
+      }
     }
     return affectedUsers
   })
@@ -656,8 +660,8 @@ async function getAffectedUsers(polygonList) {
 async function queryNearbyUsers(polygonList) {
   let zoneBounds = new PolygonListBounds(polygonList).getBounds()
   let center = new BoundCenter(zoneBounds).getCenter()
-  const radiusKm = (geofire.distanceBetween(center, [zoneBounds[0], zoneBounds[3]]))
-  const queryBounds = geofire.geohashQueryBounds(center, radiusKm)
+  const radiusM = (geofire.distanceBetween(center, [zoneBounds[0], zoneBounds[3]])) * 1000
+  const queryBounds = geofire.geohashQueryBounds(center, radiusM)
   let promises = []
   for (const b of queryBounds) {
     promises.push(db.collection('locations')
