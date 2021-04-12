@@ -14,7 +14,10 @@ class StatusDao {
   }
 
   async fetchData() {
-    const status = await this.statusRef.get();
+    return this.statusRef.get().then(status => this._setStatus(status))
+  }
+
+  _setStatus(status) {
     let data = status.data();
     this.lastModified = data.lastModified
     this.sentAlertIDs = data.sentAlertIDs

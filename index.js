@@ -591,39 +591,37 @@ exports.usersync = functions.https.onRequest((req, res) => {
         .then(() => { return res.status(200).send() })
         .catch(() => { return res.status(500).send() })
   }
-  else return res.status(400).send();
+  return res.status(400).send();
 });
 
 function validRequest(body) {
   return true; // TODO
 }
 
-exports.alertssync = functions.pubsub.schedule('*/5 * * * *') .onRun(() => {
-  //return syncAlerts();
+exports.alertssync = functions.pubsub.schedule('* * * * *') .onRun(() => {
+  return syncAlerts();
 });
 
 let lastModified
 let sentAlertIDs
 
+function statusNotInCache() {
+  return !lastModified;
+}
+
 async function syncAlerts() {
-  if (!lastModified) await getStatusFromDatabase(new StatusDao(db))
-  fetchAlertData(lastModified).then(alerts => {
-    parseAlerts(alerts).then(messages => {
-      //console.log(messages)
-    }).then(() => new StatusDao(db).saveStatusToDatabase(lastModified, sentAlertIDs))
-      .then(() => console.log("Alert Sync Complete"))
-  }).catch(err => {
-    console.log(err)
-  })
+  if (statusNotInCache()) await getStatusFromDatabase(new StatusDao(db))
+  return fetchAlertData(lastModified)
+    .then(alerts => parseAlerts(alerts))
+    .then(messages => new StatusDao(db).saveStatusToDatabase(lastModified, sentAlertIDs))
+    .then(() => console.log("Alert Sync Complete"))
+    .catch(err => console.log(err))
 }
 
 async function getMessages(al) {
-  return new Promise(resolve =>
-    getAlertZoneArea(al).then(polygonList => getAffectedUsers(polygonList)).then(users => {
-      console.log(al.properties.event, users)
-      resolve()
-    })
-  )
+  return getAlertZoneArea(al)
+    .then(alertZoneArea => getAffectedUsers(alertZoneArea))
+    .then(users => console.log(al.properties.event, users))
 }
 
 async function getAlertZoneArea(al) {
@@ -639,26 +637,22 @@ async function parseAlerts(alerts) {
       const al = filtered[i]
       const alProp = filtered[i].properties
       sentAlertIDs.push(alProp.id)
-      promises.push(getMessages(al).then(messages => {
-        firebase_messages.push(messages)
-      }))
+      promises.push(getMessages(al).then(messages => firebase_messages.push(messages)))
     }
-    console.log('Parsed', filtered.length, 'alerts')
     await Promise.all(promises)
+    console.log('Parsed', filtered.length, 'alerts')
     resolve(firebase_messages)
   })
 }
 
 async function getAffectedUsers(polygonList) {
-  return new Promise(resolve => {
-    queryNearbyUsers(polygonList).then(snapshots => {
-      const affectedUsers = [];
-      for (const snap of snapshots) {
-        for (const doc of snap.docs)
-          affectedUsers.push(doc.data())
-      }
-      resolve(affectedUsers)
-    })
+  return queryNearbyUsers(polygonList).then(snapshots => {
+    const affectedUsers = [];
+    for (const snap of snapshots) {
+      for (const doc of snap.docs)
+        affectedUsers.push(doc.data())
+    }
+    return affectedUsers
   })
 }
 
@@ -669,37 +663,38 @@ async function queryNearbyUsers(polygonList) {
   const queryBounds = geofire.geohashQueryBounds(center, radiusKm)
   let promises = []
   for (const b of queryBounds) {
-    const snapshot = await db.collection('locations')
+    promises.push(db.collection('locations')
       .orderBy('geohash')
       .startAt(b[0])
-      .endAt(b[1]);
-    promises.push(snapshot.get())
+      .endAt(b[1]).get());
   }
   return Promise.all(promises)
 }
 
+function setGlobalVariables(statusDao) {
+  lastModified = statusDao.getLastModified();
+  sentAlertIDs = statusDao.getSentAlertIDs();
+}
+
 async function getStatusFromDatabase(statusDao) {
-  return statusDao.fetchData().then(() => {
-    lastModified = statusDao.getLastModified();
-    sentAlertIDs = statusDao.getSentAlertIDs();
-  })
+  return statusDao.fetchData().then(() => setGlobalVariables(statusDao))
+}
+
+async function parseResponse(res) {
+  if (Date.parse(res.headers['last-modified']) < Date.parse(lastModified)) console.log("Data not newer")
+  else if (res.status !== 200) console.log("HTTP", res.status)
+  else {
+    lastModified = res.headers.raw()['last-modified'][0]
+    return res.json()
+  }
 }
 
 async function fetchAlertData(ifModifiedSince) {
-  return new Promise((resolve, reject) => {
-    fetch('http://api.weather.gov/alerts?status=actual', { headers : { 'User-Agent': USER_AGENT, "If-Modified-Since": ifModifiedSince }
-    }).then(res => {
-      if (Date.parse(res.headers['last-modified']) < Date.parse(lastModified)) { reject("Data not newer"); return; }
-      if (res.status !== 200) reject("HTTP " + res.status)
-      else {
-        lastModified = res.headers.raw()['last-modified'][0]
-        resolve(res.json())
-      }
-    });
-  })
+  return fetch('http://api.weather.gov/alerts?status=actual', {headers : { 'User-Agent': USER_AGENT, "If-Modified-Since": ifModifiedSince }})
+    .then(res => parseResponse(res))
 }
-
-test()
-async function test() {
-  await syncAlerts();
-}
+//
+// test()
+// async function test() {
+//   await syncAlerts();
+// }
