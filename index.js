@@ -584,7 +584,7 @@ const db = admin.firestore();
 // Validates request and updates database
 exports.usersync = functions.https.onRequest((req, res) => {
   if (validRequest(req.body)) {
-    new UserDao(admin, req.body).addToDatabase()
+    new UserDao(admin).addToDatabase(req.body)
       .then(() => { return res.status(200).send() })
       .catch(() => { return res.status(500).send() })
   }
@@ -616,22 +616,32 @@ async function syncAlerts() {
     .finally(() => console.log("Alert Sync Complete"))
 }
 
+async function deleteTokens(failedTokens) {
+  if (failedTokens.length <= 0) return
+  let promises = []
+  const userDao = new UserDao(admin)
+  for (const token of failedTokens)
+    promises.push(userDao.deleteToken(token))
+  return Promise.all(promises)
+}
 
 async function sendMessages(messages) {
   if (messages.length <= 0) return
-  return admin.messaging().sendAll(messages).then(response => parseResponse(response))
+  return admin.messaging().sendAll(messages).then(response => parseResponse(response)).then(invalidTokens => deleteTokens(invalidTokens))
 }
 
 function parseResponse(messageSendResponse) {
   console.log('Send complete. Success:', messageSendResponse.successCount, 'Failures:', messageSendResponse.failureCount)
+  let invalidTokens = []
   if (messageSendResponse.failureCount > 0) {
     messageSendResponse.responses.forEach(function (response, i) {
       if (response.error) {
-        if (response.error.code === 'messaging/registration-token-not-registered') console.log(messages[i].token)
+        if (response.error.code === 'messaging/registration-token-not-registered') invalidTokens.push(messages[i].token)
         else console.log(response.error.message)
       }
     });
   }
+  return invalidTokens
 }
 
 function setGlobalVariables(statusDao) {
