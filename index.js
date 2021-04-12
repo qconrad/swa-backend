@@ -1,17 +1,12 @@
 const functions = require('firebase-functions')
 const admin = require("firebase-admin")
 const request = require('request')
-const fetch = require('node-fetch')
 const serviceAccount = require("./serviceAccountKey.json")
 const inside = require('point-in-polygon')
 const UserDao = require('./user-dao.js')
 const StatusDao = require('./status-dao.js')
-const AlreadySentFilter = require('./already-sent-filter');
-const PolygonListBounds = require('./polygon-list-bounds');
-const BoundCenter = require('./bound-center');
-const AlertPolygons = require('./alert-polygons');
-const InsidePolygonList = require('./inside-polygon-list');
-const geofire = require('geofire-common');
+const AlertFetcher = require('./alert-fetcher.js')
+const MessageGenerator = require('./message-generator');
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -612,64 +607,11 @@ function statusInCache() {
 
 async function syncAlerts() {
   if (!statusInCache()) await getStatusFromDatabase(new StatusDao(db))
-  return fetchAlertData(lastModified)
-    .then(alerts => parseAlerts(alerts))
+  return new AlertFetcher().fetchAlerts()
+    .then(alerts => new MessageGenerator(alerts, db, sentAlertIDs).generateMessages())
     .then(messages => new StatusDao(db).saveStatusToDatabase(lastModified, sentAlertIDs))
     .catch(error => console.log(error.message))
     .finally(() => console.log("Alert Sync Complete"))
-}
-
-async function getMessages(al) {
-  return getAlertZoneArea(al)
-    .then(alertZoneArea => getAffectedUsers(alertZoneArea))
-    .then(users => console.log(al.properties.event, users))
-}
-
-async function getAlertZoneArea(al) {
-  return new AlertPolygons(al).getPolygons()
-}
-
-async function parseAlerts(alerts) {
-  let filtered = new AlreadySentFilter(alerts.features, sentAlertIDs).getAlerts().slice(0, 150)
-  let firebase_messages = []
-  let promises = []
-  for (const al of filtered) {
-    sentAlertIDs.push(al.properties.id)
-    promises.push(getMessages(al).then(messages => firebase_messages.push(messages)))
-  }
-  return Promise.all(promises).then(() => {
-    console.log('Parsed', filtered.length, 'alerts')
-    return firebase_messages
-  })
-}
-
-async function getAffectedUsers(polygonList) {
-  return queryNearbyUsers(polygonList).then(snapshots => {
-    const affectedUsers = []
-    for (const snap of snapshots) {
-      for (const doc of snap.docs) {
-        let user = doc.data()
-        if (new InsidePolygonList(polygonList, [user.coordinate.latitude, user.coordinate.longitude]).isInside())
-          affectedUsers.push(user)
-      }
-    }
-    return affectedUsers
-  })
-}
-
-async function queryNearbyUsers(polygonList) {
-  let zoneBounds = new PolygonListBounds(polygonList).getBounds()
-  let center = new BoundCenter(zoneBounds).getCenter()
-  const radiusM = (geofire.distanceBetween(center, [zoneBounds[0], zoneBounds[3]])) * 1000
-  const queryBounds = geofire.geohashQueryBounds(center, radiusM)
-  let promises = []
-  for (const b of queryBounds) {
-    promises.push(db.collection('locations')
-      .orderBy('geohash')
-      .startAt(b[0])
-      .endAt(b[1]).get())
-  }
-  return Promise.all(promises)
 }
 
 function setGlobalVariables(statusDao) {
@@ -681,21 +623,7 @@ async function getStatusFromDatabase(statusDao) {
   return statusDao.fetchData().then(() => setGlobalVariables(statusDao))
 }
 
-async function parseResponse(res) {
-  if (Date.parse(res.headers['last-modified']) < Date.parse(lastModified)) return Promise.reject(new Error("Returned data not newer"))
-  else if (res.status !== 200) return Promise.reject(new Error('HTTP ' + res.status))
-  else {
-    lastModified = res.headers.raw()['last-modified'][0]
-    return res.json()
-  }
-}
-
-async function fetchAlertData(ifModifiedSince) {
-  return fetch('http://api.weather.gov/alerts?status=actual', {headers : { 'User-Agent': USER_AGENT, "If-Modified-Since": ifModifiedSince }})
-    .then(res => parseResponse(res)).catch(errorCode => Promise.reject(new Error(errorCode.message)))
-}
- //
- // test()
- // async function test() {
- //   await syncAlerts();
- // }
+ test()
+ async function test() {
+   await syncAlerts();
+ }
