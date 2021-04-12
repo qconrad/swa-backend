@@ -7,8 +7,7 @@ class InsidePolygonList {
   }
 
   isInside() {
-    for (let polygon of this.polygonList)
-      if (inside(this.coordinate, polygon)) return true
+    for (const polygon of this.polygonList) if (inside(this.coordinate, polygon)) return true
     return false
   }
 }

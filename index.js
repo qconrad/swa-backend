@@ -583,20 +583,18 @@ const alertStyle = {
 // Validates request and updates database accordingly
 exports.usersync = functions.https.onRequest((req, res) => {
   if (validRequest(req.body)) {
-      new UserDao(admin, req.body).addToDatabase()
-        .then(() => { return res.status(200).send() })
-        .catch(() => { return res.status(500).send() })
+    new UserDao(admin, req.body).addToDatabase()
+      .then(() => { return res.status(200).send() })
+      .catch(() => { return res.status(500).send() })
   }
   return res.status(400).send()
 })
 
+exports.alertssync = functions.pubsub.schedule('* * * * *') .onRun(() => syncAlerts())
+
 function validRequest(body) {
   return true // TODO
 }
-
-exports.alertssync = functions.pubsub.schedule('* * * * *') .onRun(() => {
-  return syncAlerts()
-})
 
 const statusDao = new StatusDao(db)
 let lastModified
@@ -606,7 +604,7 @@ function statusInCache() { return lastModified }
 
 async function syncAlerts() {
   if (!statusInCache()) await statusDao.getStatusFromDatabase().then(() => setGlobalVariables(statusDao))
-  let alertFetcher = new AlertFetcher(lastModified, USER_AGENT)
+  const alertFetcher = new AlertFetcher(lastModified, USER_AGENT)
   return alertFetcher.fetchAlerts()
     .then(alerts => new MessageGenerator(alerts, db, sentAlertIDs).generateMessages())
     .then(messages => console.log('messages', messages))
@@ -620,8 +618,3 @@ function setGlobalVariables(statusDao) {
   lastModified = statusDao.getLastModified()
   sentAlertIDs = statusDao.getSentAlertIDs()
 }
- //
- // test()
- // async function test() {
- //   await syncAlerts();
- // }

@@ -7,7 +7,8 @@ class AlertFetcher {
   }
 
   async fetchAlerts() {
-    return fetch('http://api.weather.gov/alerts?status=actual', {headers : { 'User-Agent': this.userAgent, "If-Modified-Since": this.isModifiedSince }})
+    return fetch('http://api.weather.gov/alerts?status=actual',
+      {headers : { 'User-Agent': this.userAgent, "If-Modified-Since": this.isModifiedSince }})
       .then(res => this._parseResponse(res)).catch(errorCode => Promise.reject(new Error(errorCode.message)))
   }
 

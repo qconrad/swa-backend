@@ -1,7 +1,7 @@
 const GeometryParser = require('./geometry-parser')
 const fetch = require('node-fetch')
 
-class AlertPolygons {
+class AlertZoneArea {
   constructor(alert, userAgent) {
     this.alert = alert
     this.userAgent = userAgent
@@ -33,4 +33,4 @@ class AlertPolygons {
   }
 }
 
-module.exports = AlertPolygons
+module.exports = AlertZoneArea

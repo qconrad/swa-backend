@@ -18,7 +18,7 @@ class StatusDao {
   }
 
   _setStatus(status) {
-    let data = status.data();
+    const data = status.data();
     this.lastModified = data.lastModified
     this.sentAlertIDs = data.sentAlertIDs
   }
