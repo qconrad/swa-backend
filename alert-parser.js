@@ -15,7 +15,9 @@ class AlertParser {
     const promises = []
     for (const al of filtered) {
       this.sentAlertIDs.push(al.properties.id)
-      promises.push(this._getUsers(al).then(users => userList.push(users)))
+      promises.push(this._getAffectedUsers(al).then(users => {
+        if (users.length > 0) userList.push({alert: al, users: users})
+      }))
     }
     return Promise.all(promises).then(() => {
       console.log('Parsed', filtered.length, 'alerts')
@@ -23,10 +25,8 @@ class AlertParser {
     })
   }
 
-  async _getUsers(al) {
-    return new AlertZoneArea(al).getPolygons()
-      .then(alertZoneArea => new AffectedUsers(alertZoneArea, db).get())
-      .then(users => { return { alert: al, users: users } })
+  async _getAffectedUsers(al) {
+    return new AlertZoneArea(al).getPolygons().then(alertZoneArea => new AffectedUsers(alertZoneArea, this.db).get())
   }
 }
 
