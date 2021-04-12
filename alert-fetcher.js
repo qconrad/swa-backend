@@ -19,6 +19,10 @@ class AlertFetcher {
       return res.json()
     }
   }
+
+  getLastModified() {
+    return this.isModifiedSince
+  }
 }
 
 module.exports = AlertFetcher

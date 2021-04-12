@@ -13,7 +13,7 @@ class StatusDao {
     });
   }
 
-  async fetchData() {
+  async getStatusFromDatabase() {
     return this.statusRef.get().then(status => this._setStatus(status))
   }
 

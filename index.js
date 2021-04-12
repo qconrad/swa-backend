@@ -598,18 +598,20 @@ exports.alertssync = functions.pubsub.schedule('* * * * *') .onRun(() => {
   return syncAlerts()
 })
 
+const statusDao = new StatusDao(db)
 let lastModified
 let sentAlertIDs
 
-function statusInCache() {
-  return lastModified
-}
+function statusInCache() { return lastModified }
 
 async function syncAlerts() {
-  if (!statusInCache()) await getStatusFromDatabase(new StatusDao(db))
-  return new AlertFetcher().fetchAlerts()
+  if (!statusInCache()) await statusDao.getStatusFromDatabase().then(() => setGlobalVariables(statusDao))
+  let alertFetcher = new AlertFetcher(lastModified, USER_AGENT)
+  return alertFetcher.fetchAlerts()
     .then(alerts => new MessageGenerator(alerts, db, sentAlertIDs).generateMessages())
-    .then(messages => new StatusDao(db).saveStatusToDatabase(lastModified, sentAlertIDs))
+    .then(messages => console.log('messages', messages))
+    .then(() => lastModified = alertFetcher.getLastModified())
+    .then(() => statusDao.saveStatusToDatabase(lastModified, sentAlertIDs))
     .catch(error => console.log(error.message))
     .finally(() => console.log("Alert Sync Complete"))
 }
@@ -618,12 +620,8 @@ function setGlobalVariables(statusDao) {
   lastModified = statusDao.getLastModified()
   sentAlertIDs = statusDao.getSentAlertIDs()
 }
-
-async function getStatusFromDatabase(statusDao) {
-  return statusDao.fetchData().then(() => setGlobalVariables(statusDao))
-}
-
- test()
- async function test() {
-   await syncAlerts();
- }
+ //
+ // test()
+ // async function test() {
+ //   await syncAlerts();
+ // }
