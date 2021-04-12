@@ -1,32 +1,16 @@
-const AlreadySentFilter = require('./already-sent-filter');
-const AlertZoneArea = require('./alert-zone-area');
-const AffectedUsers = require('./affected-users');
+const MessageDataPayload = require('./message-data-payload')
 
 class MessageGenerator {
-  constructor(alerts, db, sentAlertIDs) {
-    this.alerts = alerts
-    this.db = db
-    this.sentAlertIDs = sentAlertIDs
+  constructor(alert_user_map) {
+    this.alert_user_map = alert_user_map
   }
 
-  async generateMessages() {
-    const filtered = new AlreadySentFilter(this.alerts.features, this.sentAlertIDs).getAlerts().slice(0, 150)
-    const firebase_messages = []
-    const promises = []
-    for (const al of filtered) {
-      this.sentAlertIDs.push(al.properties.id)
-      promises.push(this._getMessages(al).then(messages => firebase_messages.push(messages)))
-    }
-    return Promise.all(promises).then(() => {
-      console.log('Parsed', filtered.length, 'alerts')
-      return firebase_messages
-    })
-  }
-
-  async _getMessages(al) {
-    return new AlertZoneArea(al).getPolygons()
-      .then(alertZoneArea => new AffectedUsers(alertZoneArea).get())
-      .then(users => console.log(al.properties.event, users))
+  getMessages() {
+    let messages = []
+    for (const map of this.alert_user_map)
+      for (const user of map.users)
+        messages.push({priority: "high", token: user.token, data: new MessageDataPayload(map.alert).get()})
+    return messages
   }
 }
 
