@@ -591,26 +591,26 @@ exports.usersync = functions.https.onRequest((req, res) => {
         .then(() => { return res.status(200).send() })
         .catch(() => { return res.status(500).send() })
   }
-  return res.status(400).send();
-});
+  return res.status(400).send()
+})
 
 function validRequest(body) {
-  return true; // TODO
+  return true // TODO
 }
 
 exports.alertssync = functions.pubsub.schedule('* * * * *') .onRun(() => {
-  return syncAlerts();
-});
+  return syncAlerts()
+})
 
 let lastModified
 let sentAlertIDs
 
-function statusNotInCache() {
-  return !lastModified;
+function statusInCache() {
+  return lastModified
 }
 
 async function syncAlerts() {
-  if (statusNotInCache()) await getStatusFromDatabase(new StatusDao(db))
+  if (!statusInCache()) await getStatusFromDatabase(new StatusDao(db))
   return fetchAlertData(lastModified)
     .then(alerts => parseAlerts(alerts))
     .then(messages => new StatusDao(db).saveStatusToDatabase(lastModified, sentAlertIDs))
@@ -629,25 +629,22 @@ async function getAlertZoneArea(al) {
 }
 
 async function parseAlerts(alerts) {
-  return new Promise(async resolve => {
-    let filtered = new AlreadySentFilter(alerts.features, sentAlertIDs).getAlerts().slice(0, 150)
-    let firebase_messages = []
-    let promises = []
-    for (let i = 0; i < filtered.length; i++) {
-      const al = filtered[i]
-      const alProp = filtered[i].properties
-      sentAlertIDs.push(alProp.id)
-      promises.push(getMessages(al).then(messages => firebase_messages.push(messages)))
-    }
-    await Promise.all(promises)
+  let filtered = new AlreadySentFilter(alerts.features, sentAlertIDs).getAlerts().slice(0, 150)
+  let firebase_messages = []
+  let promises = []
+  for (const al of filtered) {
+    sentAlertIDs.push(al.properties.id)
+    promises.push(getMessages(al).then(messages => firebase_messages.push(messages)))
+  }
+  return Promise.all(promises).then(() => {
     console.log('Parsed', filtered.length, 'alerts')
-    resolve(firebase_messages)
+    return firebase_messages
   })
 }
 
 async function getAffectedUsers(polygonList) {
   return queryNearbyUsers(polygonList).then(snapshots => {
-    const affectedUsers = [];
+    const affectedUsers = []
     for (const snap of snapshots) {
       for (const doc of snap.docs)
         affectedUsers.push(doc.data())
@@ -666,14 +663,14 @@ async function queryNearbyUsers(polygonList) {
     promises.push(db.collection('locations')
       .orderBy('geohash')
       .startAt(b[0])
-      .endAt(b[1]).get());
+      .endAt(b[1]).get())
   }
   return Promise.all(promises)
 }
 
 function setGlobalVariables(statusDao) {
-  lastModified = statusDao.getLastModified();
-  sentAlertIDs = statusDao.getSentAlertIDs();
+  lastModified = statusDao.getLastModified()
+  sentAlertIDs = statusDao.getSentAlertIDs()
 }
 
 async function getStatusFromDatabase(statusDao) {
@@ -693,8 +690,8 @@ async function fetchAlertData(ifModifiedSince) {
   return fetch('http://api.weather.gov/alerts?status=actual', {headers : { 'User-Agent': USER_AGENT, "If-Modified-Since": ifModifiedSince }})
     .then(res => parseResponse(res)).catch(errorCode => Promise.reject(new Error(errorCode.message)))
 }
-//
-// test()
-// async function test() {
-//   await syncAlerts();
-// }
+ //
+ // test()
+ // async function test() {
+ //   await syncAlerts();
+ // }
