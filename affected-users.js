@@ -4,8 +4,9 @@ const InsidePolygonList = require('./inside-polygon-list');
 const geofire = require('geofire-common');
 
 class AffectedUsers {
-  constructor(polygonList) {
+  constructor(polygonList, db) {
     this.polygonList = polygonList
+    this.db = db
   }
 
   async get() {

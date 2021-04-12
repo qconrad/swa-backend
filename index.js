@@ -3,10 +3,10 @@ const admin = require("firebase-admin")
 const request = require('request')
 const serviceAccount = require("./serviceAccountKey.json")
 const inside = require('point-in-polygon')
-const UserDao = require('./user-dao.js')
-const StatusDao = require('./status-dao.js')
-const AlertFetcher = require('./alert-fetcher.js')
-const MessageGenerator = require('./message-generator');
+const UserDao = require('./user-dao')
+const StatusDao = require('./status-dao')
+const AlertFetcher = require('./alert-fetcher')
+const AlertParser = require('./alert-parser');
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -606,8 +606,8 @@ async function syncAlerts() {
   if (!statusInCache()) await statusDao.getStatusFromDatabase().then(() => setGlobalVariables(statusDao))
   const alertFetcher = new AlertFetcher(lastModified, USER_AGENT)
   return alertFetcher.fetchAlerts()
-    .then(alerts => new MessageGenerator(alerts, db, sentAlertIDs).generateMessages())
-    .then(messages => console.log('messages', messages))
+    .then(alerts => new AlertParser(alerts, db, sentAlertIDs).parseAlerts())
+    .then(users => console.log('users', users))
     .then(() => lastModified = alertFetcher.getLastModified())
     .then(() => statusDao.saveStatusToDatabase(lastModified, sentAlertIDs))
     .catch(error => console.log(error.message))

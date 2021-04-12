@@ -2,15 +2,15 @@ const ListTrim = require('./list-trim')
 
 class StatusDao {
   constructor(db) {
-    this.db = db;
-    this.statusRef = this.db.collection('functionstatus').doc('alertsync')
+    this.db = db
+    this.statusRef = db.collection('functionstatus').doc('alertsync')
   }
 
   async saveStatusToDatabase(lastModified, sentAlertIDs) {
     return this.statusRef.update({
       lastModified: lastModified,
       sentAlertIDs: new ListTrim(sentAlertIDs, 1500, 500).getTrimmed()
-    });
+    })
   }
 
   async getStatusFromDatabase() {
@@ -18,7 +18,7 @@ class StatusDao {
   }
 
   _setStatus(status) {
-    const data = status.data();
+    const data = status.data()
     this.lastModified = data.lastModified
     this.sentAlertIDs = data.sentAlertIDs
   }
