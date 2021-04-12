@@ -27,7 +27,7 @@ test('one alert with two user, two messages returned', () => {
 test('one alert with two user, two messages returned', () => {
   let input = [{alert: testAlert, users: [{token: "test"},{token: "test2"}]}]
   let messageGenerator = new MessageGenerator(input)
-  expect(messageGenerator.getMessages()[0].priority).toBe("high")
+  expect(messageGenerator.getMessages()[0].android.priority).toBe("high")
 });
 
 test('one alert with two user, data payload returned', () => {

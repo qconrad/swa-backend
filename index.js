@@ -7,6 +7,7 @@ const UserDao = require('./user-dao')
 const StatusDao = require('./status-dao')
 const AlertFetcher = require('./alert-fetcher')
 const AlertParser = require('./alert-parser');
+const MessageGenerator = require('./message-generator')
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -15,9 +16,6 @@ admin.initializeApp({
 
 // In the process of switching to firestore, realtime database will be removed later
 const rtDb = admin.database();
-const db = admin.firestore();
-
-const USER_AGENT = '(Severe Weather Alerts, https://github.com/qconrad/severe-weather-alerts)';
 
 let rtLastModified;// Time and date of newest data
 let parsed = [];   // IDs of alerts that have already been parsed and sent
@@ -579,8 +577,11 @@ const alertStyle = {
 // Everything above will soon be deprecated and eventually removed completely
 // -------------------------------------------------------------------------
 
+const USER_AGENT = '(Severe Weather Alerts, https://github.com/qconrad/severe-weather-alerts)';
+const db = admin.firestore();
+
 // Called when user makes request to sync their location(s)
-// Validates request and updates database accordingly
+// Validates request and updates database
 exports.usersync = functions.https.onRequest((req, res) => {
   if (validRequest(req.body)) {
     new UserDao(admin, req.body).addToDatabase()
@@ -590,11 +591,12 @@ exports.usersync = functions.https.onRequest((req, res) => {
   return res.status(400).send()
 })
 
-exports.alertssync = functions.pubsub.schedule('* * * * *') .onRun(() => syncAlerts())
-
 function validRequest(body) {
   return true // TODO
 }
+
+// Send new alerts to affected users every minute
+exports.alertssync = functions.pubsub.schedule('* * * * *') .onRun(() => syncAlerts())
 
 const statusDao = new StatusDao(db)
 let lastModified
@@ -607,11 +609,28 @@ async function syncAlerts() {
   const alertFetcher = new AlertFetcher(lastModified, USER_AGENT)
   return alertFetcher.fetchAlerts()
     .then(alerts => new AlertParser(alerts, db, sentAlertIDs).parseAlerts())
-    .then(users => console.log('users', users))
+    .then(alert_user_map => sendMessages(new MessageGenerator(alert_user_map).getMessages()))
     .then(() => lastModified = alertFetcher.getLastModified())
     .then(() => statusDao.saveStatusToDatabase(lastModified, sentAlertIDs))
     .catch(error => console.log(error.message))
     .finally(() => console.log("Alert Sync Complete"))
+}
+
+
+async function sendMessages(messages) {
+  return admin.messaging().sendAll(messages).then(response => parseResponse(response))
+}
+
+function parseResponse(messageSendResponse) {
+  console.log('Send complete. Success:', messageSendResponse.successCount, 'Failures:', messageSendResponse.failureCount)
+  if (messageSendResponse.failureCount > 0) {
+    messageSendResponse.responses.forEach(function (response, i) {
+      if (response.error) {
+        if (response.error.code === 'messaging/registration-token-not-registered') console.log(messages[i].token)
+        else console.log(response.error.message)
+      }
+    });
+  }
 }
 
 function setGlobalVariables(statusDao) {

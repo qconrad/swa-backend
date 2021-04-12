@@ -15,14 +15,16 @@ class AlertParser {
     const promises = []
     for (const al of filtered) {
       this.sentAlertIDs.push(al.properties.id)
-      promises.push(this._getAffectedUsers(al).then(users => {
-        if (users.length > 0) userList.push({alert: al, users: users})
-      }))
+      promises.push(this._getAffectedUsers(al).then(users => this._addAlertIfHasUsers(al, users, userList)))
     }
     return Promise.all(promises).then(() => {
       console.log('Parsed', filtered.length, 'alerts')
       return userList
     })
+  }
+
+  _addAlertIfHasUsers(al, users, userList) {
+    if (users.length > 0) userList.push({alert: al, users: users})
   }
 
   async _getAffectedUsers(al) {
