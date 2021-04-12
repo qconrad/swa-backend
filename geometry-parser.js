@@ -15,7 +15,7 @@ class GeometryParser {
 
   _getPolygon(coordinates) {
     let polygon = []
-    for (const coordinate of coordinates) polygon.push(coordinate.reverse())
+    for (const coordinate of coordinates) polygon.push(coordinate.slice(0).reverse())
     return polygon
   }
 }
