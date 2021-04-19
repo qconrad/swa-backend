@@ -7,6 +7,7 @@ const UserDao = require('./user-dao')
 const StatusDao = require('./status-dao')
 const AlertFetcher = require('./alert-fetcher')
 const AlertParser = require('./alert-parser');
+const AlertLogger = require('./alert-logger');
 const MessageGenerator = require('./message-generator')
 
 admin.initializeApp({
@@ -604,12 +605,17 @@ let sentAlertIDs
 
 function statusInCache() { return lastModified }
 
+async function sendAndLog(alert_user_map) {
+  new AlertLogger(alert_user_map).log()
+  return sendMessages(new MessageGenerator(alert_user_map).getMessages())
+}
+
 async function syncAlerts() {
   if (!statusInCache()) await statusDao.getStatusFromDatabase().then(() => setGlobalVariables(statusDao))
   const alertFetcher = new AlertFetcher(lastModified, USER_AGENT)
   return alertFetcher.fetchAlerts()
     .then(alerts => new AlertParser(alerts, db, sentAlertIDs).parseAlerts())
-    .then(alert_user_map => sendMessages(new MessageGenerator(alert_user_map).getMessages()))
+    .then(alert_user_map => sendAndLog(alert_user_map))
     .then(() => lastModified = alertFetcher.getLastModified())
     .then(() => statusDao.saveStatusToDatabase(lastModified, sentAlertIDs))
     .catch(error => console.log(error.message))
