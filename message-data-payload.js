@@ -10,7 +10,7 @@ class MessageDataPayload {
     data.id = props.id
     if (props.parameters.NWSheadline) data.nwsHeadline = props.parameters.NWSheadline[0]
     data.description = props.description
-    if (props.instruction) data.instruction = props.instruction
+    if (props.instruction && props.messageType !== "Cancel") data.instruction = props.instruction
     data.type = props.messageType
     data.sent = props.sent
     if (props.onset) data.onset = props.onset
