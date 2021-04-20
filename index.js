@@ -606,7 +606,7 @@ let sentAlertIDs
 function statusInCache() { return lastModified }
 
 async function sendAndLog(alert_user_map) {
-  new AlertLogger(alert_user_map).log()
+  new AlertLogger(alert_user_map, new Date()).log()
   return sendMessages(new MessageGenerator(alert_user_map).getMessages())
 }
 
