@@ -633,11 +633,10 @@ async function deleteTokens(failedTokens) {
 
 async function sendMessages(messages) {
   if (messages.length <= 0) return
-  return admin.messaging().sendAll(messages).then(response => parseResponse(response)).then(invalidTokens => deleteTokens(invalidTokens))
+  return admin.messaging().sendAll(messages).then(response => parseResponse(messages, response)).then(invalidTokens => deleteTokens(invalidTokens))
 }
 
-function parseResponse(messageSendResponse) {
-  console.log('Send complete. Success:', messageSendResponse.successCount, 'Failures:', messageSendResponse.failureCount)
+function parseResponse(messages, messageSendResponse) {
   let invalidTokens = []
   if (messageSendResponse.failureCount > 0) {
     messageSendResponse.responses.forEach(function (response, i) {
