@@ -641,7 +641,10 @@ function parseResponse(messages, messageSendResponse) {
   if (messageSendResponse.failureCount > 0) {
     messageSendResponse.responses.forEach(function (response, i) {
       if (response.error) {
-        if (response.error.code === 'messaging/registration-token-not-registered') invalidTokens.push(messages[i].token)
+        if (response.error.code === 'messaging/registration-token-not-registered'||
+            response.error.code === 'messaing/invalid-argument') {
+          invalidTokens.push(messages[i].token)
+        }
         else console.log(response.error.message)
       }
     });
