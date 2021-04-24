@@ -41,7 +41,7 @@ class UserDao {
   }
 
   async deleteToken(token) {
-    return this._getLocations().then(userLocations => this._deleteLocations(userLocations, token))
+    return this._getLocations(token).then(userLocations => this._deleteLocations(userLocations, token))
   }
 
   async _getLocations(token) {
@@ -52,9 +52,9 @@ class UserDao {
     let deleteCount = 0
     userLocations.forEach(location => {
       deleteCount++
-      location.ref.remove()
+      location.ref.delete()
     });
-    console.log('Deleted', deleteCount, 'locations for token: ', token)
+    console.log('Deleted', deleteCount, 'location(s) for token: ', token)
   }
 
 
