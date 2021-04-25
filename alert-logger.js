@@ -10,7 +10,7 @@ class AlertLogger {
       let latencyMinutes = Math.floor(latency / 60)
       let users = []
       for (const user of alert.users) users.push(user.token)
-      console.log("Latency: <" + latencyMinutes + "min, " + alert.alert.properties.event + " " + alert.alert.properties.messageType + " by " + this.alerts[0].alert.properties.senderName + ", users: [" + users + "]")
+      console.log("Latency: <" + latencyMinutes + "min, " + alert.alert.properties.event + " " + alert.alert.properties.messageType + " by " + this.alerts[0].alert.properties.senderName + ", " + users.length + " user(s): [" + users + "]")
     }
   }
 }
