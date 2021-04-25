@@ -637,7 +637,7 @@ async function sendMessages(messages) {
 }
 
 function parseResponse(messages, messageSendResponse) {
-  console.log('Send comlete. Success:', messageSendResponse.success, 'Failures:', messageSendResponse.failureCount)
+  console.log('Send comlete. Success:', messageSendResponse.successCount, 'Failures:', messageSendResponse.failureCount)
   let invalidTokens = []
   if (messageSendResponse.failureCount > 0) {
     messageSendResponse.responses.forEach(function (response, i) {
