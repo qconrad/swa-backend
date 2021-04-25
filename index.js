@@ -589,7 +589,7 @@ exports.usersync = functions.https.onRequest((req, res) => {
       .then(() => { return res.status(200).send() })
       .catch(() => { return res.status(500).send() })
   }
-  return res.status(400).send()
+  else return res.status(400).send()
 })
 
 function validRequest(body) {
