@@ -1,4 +1,4 @@
-const geofire = require("geofire-common");
+const geofire = require("geofire-common")
 
 class UserDao {
   constructor(firebaseAdmin) {
@@ -13,15 +13,15 @@ class UserDao {
   async _addOrUpdate(userSyncJson, locations) {
     let promises = []
     if (locations.empty) {
-      await this._deleteTokenFromRealtimeDatabase(userSyncJson.token);
-      await this._addNewUser(userSyncJson.token, userSyncJson.locations[0][0], userSyncJson.locations[0][1])
+      promises.add(this._addNewUser(userSyncJson.token, userSyncJson.locations[0][0], userSyncJson.locations[0][1]))
+      promises.add(this._deleteTokenFromRealtimeDatabase(userSyncJson.token))
       console.log('New user:', userSyncJson.token)
     }
     locations.forEach(location => {
-      promises.push(this.updateExistingLocation(location, userSyncJson.locations[0][0], userSyncJson.locations[0][1]));
+      promises.push(this._updateExistingLocation(location, userSyncJson.locations[0][0], userSyncJson.locations[0][1]))
       console.log('Location update:', userSyncJson.token)
-    });
-    return Promise.all(promises);
+    })
+    return Promise.all(promises)
   }
 
   async _addNewUser(token, lat, lon) {
@@ -30,10 +30,10 @@ class UserDao {
       index: 0,
       coordinate: new this.admin.firestore.GeoPoint(lat, lon),
       geohash: geofire.geohashForLocation([lat, lon])
-    });
+    })
   }
 
-  async updateExistingLocation(locationDoc, lat, lon) {
+  async _updateExistingLocation(locationDoc, lat, lon) {
     return locationDoc.ref.update({
       coordinate: new this.admin.firestore.GeoPoint(lat, lon),
       geohash: geofire.geohashForLocation([lat, lon])
@@ -53,14 +53,13 @@ class UserDao {
     userLocations.forEach(location => {
       deleteCount++
       location.ref.delete()
-    });
+    })
     console.log('Deleted', deleteCount, 'location(s) for token: ', token)
   }
 
-
   async _deleteTokenFromRealtimeDatabase(token) {
-    console.log("Deleting token from realtime database: " + token);
-    return this.admin.database().ref("/users/" + token).remove();
+    console.log("Deleting token from realtime database: " + token)
+    return this.admin.database().ref("/users/" + token).remove()
   }
 }
 module.exports = UserDao
