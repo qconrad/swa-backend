@@ -13,9 +13,9 @@ class UserDao {
   async _addOrUpdate(userSyncJson, locations) {
     let promises = []
     if (locations.empty) {
-      promises.add(this._addNewUser(userSyncJson.token, userSyncJson.locations[0][0], userSyncJson.locations[0][1]))
-      promises.add(this._deleteTokenFromRealtimeDatabase(userSyncJson.token))
-      console.log('New user:', userSyncJson.token)
+      await this._addNewUser(userSyncJson.token, userSyncJson.locations[0][0], userSyncJson.locations[0][1])
+      console.log('Added new user:', userSyncJson.token)
+      await this._deleteTokenFromRealtimeDatabase(userSyncJson.token)
     }
     locations.forEach(location => {
       promises.push(this._updateExistingLocation(location, userSyncJson.locations[0][0], userSyncJson.locations[0][1]))
