@@ -9,6 +9,7 @@ const AlertFetcher = require('./alert-fetcher')
 const AlertParser = require('./alert-parser');
 const AlertLogger = require('./alert-logger');
 const MessageGenerator = require('./message-generator')
+const NestedCancelRemover = require('./nested-cancellation-remover')
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -615,7 +616,7 @@ async function syncAlerts() {
   const alertFetcher = new AlertFetcher(lastModified, USER_AGENT)
   return alertFetcher.fetchAlerts()
     .then(alerts => new AlertParser(alerts, db, sentAlertIDs).parseAlerts())
-    .then(alert_user_map => sendAndLog(alert_user_map))
+    .then(alert_user_map => sendAndLog(new NestedCancelRemover(alert_user_map).get()))
     .then(() => lastModified = alertFetcher.getLastModified())
     .then(() => statusDao.saveStatusToDatabase(lastModified, sentAlertIDs))
     .catch(error => console.log(error.message))
@@ -637,7 +638,7 @@ async function sendMessages(messages) {
 }
 
 function parseResponse(messages, messageSendResponse) {
-  console.log('Send comlete. Success:', messageSendResponse.successCount, 'Failures:', messageSendResponse.failureCount)
+  console.log('Send complete. Success:', messageSendResponse.successCount, 'Failures:', messageSendResponse.failureCount)
   let invalidTokens = []
   if (messageSendResponse.failureCount > 0) {
     messageSendResponse.responses.forEach(function (response, i) {
