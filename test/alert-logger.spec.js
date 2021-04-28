@@ -56,3 +56,11 @@ test('alerts given, user token printed', () => {
   new AlertLogger(alerts, new Date("2021-04-19T14:37:00-06:00")).log()
   expect(console.log.mock.calls[0][0]).toBe('Latency: <2min, Tornado Warning Alert by NWS Lincoln IL, 2 user(s): [userid,userid2]');
 });
+
+test('two alerts, second sender correct', () => {
+  console.log = jest.fn();
+  let alerts = [{alert: {properties: {sent: "2021-04-19T14:35:00-06:00", event: "Severe Thunderstorm Watch", messageType: "Alert", senderName: "NWS Lincoln IL"}}, users: ["userid", "userid2"]},
+    {alert: {properties: {sent: "2021-04-19T14:35:00-06:00", event: "Tornado Warning", messageType: "Alert", senderName: "NWS Chicago IL"}}, users: [{token:"userid"}, {token:"userid2"}]}];
+  new AlertLogger(alerts, new Date("2021-04-19T14:37:00-06:00")).log()
+  expect(console.log.mock.calls[1][0]).toBe('Latency: <2min, Tornado Warning Alert by NWS Chicago IL, 2 user(s): [userid,userid2]');
+});
