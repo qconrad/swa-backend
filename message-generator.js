@@ -8,8 +8,9 @@ class MessageGenerator {
   getMessages() {
     let messages = []
     for (const alertMap of this.alert_user_map) {
+      let dataPayload = new MessageDataPayload(alertMap.alert).get()
       for (const user of alertMap.users)
-        messages.push({android: {priority: "high"}, token: user.token, data: new MessageDataPayload(alertMap.alert).get()})
+        messages.push({android: {priority: "high"}, token: user.token, data: dataPayload})
     }
     return messages
   }
