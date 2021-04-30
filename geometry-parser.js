@@ -1,16 +1,25 @@
 class GeometryParser {
   constructor(geometry) {
     this.geometry = geometry
+    this.polygonList = []
   }
 
   parse() {
-    let polygonList = []
-    for (let p = 0; p < this.geometry.coordinates.length; p++) {
-      let coordinates = this.geometry.coordinates[p]
-      if (this.geometry.type === "MultiPolygon") coordinates = coordinates[0]
-      polygonList.push(this._getPolygon(coordinates))
+    if (this.geometry.type === "GeometryCollection") this._parseGeometryCollection();
+    else this._parseSingleGeometry(this.geometry);
+    return this.polygonList;
+  }
+
+  _parseGeometryCollection() {
+    for (const geometry of this.geometry.geometries) this._parseSingleGeometry(geometry);
+  }
+
+  _parseSingleGeometry(geometry) {
+    for (let p = 0; p < geometry.coordinates.length; p++) {
+      let coordinates = geometry.coordinates[p]
+      if (geometry.type === "MultiPolygon") coordinates = coordinates[0]
+      this.polygonList.push(this._getPolygon(coordinates))
     }
-    return polygonList
   }
 
   _getPolygon(coordinates) {
