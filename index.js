@@ -593,6 +593,13 @@ exports.usersync = functions.https.onRequest((req, res) => {
   else return res.status(400).send()
 })
 
+exports.feedback = functions.https.onRequest((req, res) => {
+  let data = req.body
+  data.createdAt = admin.firestore.Timestamp.now()
+  db.collection("feedback").add(data).then(() => { return res.status(200).send()})
+  .catch(() => res.status(500).send() )
+})
+
 function validRequest(body) {
   return true // TODO
 }
