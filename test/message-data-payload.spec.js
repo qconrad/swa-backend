@@ -208,3 +208,8 @@ test('cancel with instruction, instruction undefined', () => {
   let messageData = new MessageDataPayload(testAlert)
   expect(messageData.get().instruction).toBe(undefined)
 });
+
+test('event motion description', () => {
+  let messageData = new MessageDataPayload(testAlert)
+  expect(messageData.get().motionDescription).toBe("2021-04-12T01:40:00-00:00...storm...230DEG...10KT...39.68,-76.17")
+});

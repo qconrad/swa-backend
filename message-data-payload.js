@@ -17,6 +17,7 @@ class MessageDataPayload {
     if (props.expires) data.expires = props.expires
     if (props.ends) data.ends = props.ends
     if (props.senderName) data.senderName = props.senderName
+    if (props.parameters.eventMotionDescription) data.motionDescription = props.parameters.eventMotionDescription[0]
     data.senderCode = props.parameters.PIL[0].slice(0, 3)
     if (this.alert.geometry) {
       data.polygonType = this.alert.geometry.type
