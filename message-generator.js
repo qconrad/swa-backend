@@ -9,8 +9,11 @@ class MessageGenerator {
     let messages = []
     for (const alertMap of this.alert_user_map) {
       let dataPayload = new MessageDataPayload(alertMap.alert).get()
-      for (const user of alertMap.users)
-        messages.push({android: {priority: "high"}, token: user.token, data: dataPayload})
+      for (const user of alertMap.users) {
+        let message = { android: { priority: "high" }, token: user.token, data: dataPayload }
+        if (JSON.stringify(message).length > 4000) message.data = { fetchManually: "true", id: dataPayload.id }
+        messages.push(message)
+      }
     }
     return messages
   }
