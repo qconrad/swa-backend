@@ -9,6 +9,7 @@ const AlertFetcher = require('./alert-fetcher')
 const AlertParser = require('./alert-parser');
 const AlertLogger = require('./alert-logger');
 const MessageGenerator = require('./message-generator')
+const MessageSplitter = require('./message-splitter')
 const NestedCancelRemover = require('./nested-cancellation-remover')
 
 admin.initializeApp({
@@ -640,8 +641,12 @@ async function deleteTokens(failedTokens) {
 }
 
 async function sendMessages(messages) {
-  if (messages.length <= 0) return
-  return admin.messaging().sendAll(messages).then(response => parseResponse(messages, response)).then(invalidTokens => deleteTokens(invalidTokens))
+  let promises = []
+  if (messages.length < 1) return
+  let payloads = new MessageSplitter(messages, 500).getPayloads()
+  for (const payload of payloads)
+    promises.push(admin.messaging().sendAll(payload).then(response => parseResponse(messages, response)).then(invalidTokens => deleteTokens(invalidTokens)))
+  return Promise.all(promises)
 }
 
 function parseResponse(messages, messageSendResponse) {

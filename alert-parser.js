@@ -10,7 +10,7 @@ class AlertParser {
   }
 
   async parseAlerts() {
-    const filtered = new AlreadySentFilter(this.alerts.features, this.sentAlertIDs).getAlerts().slice(0, 150)
+    const filtered = new AlreadySentFilter(this.alerts.features, this.sentAlertIDs).getAlerts().slice(0, 250)
     const userList = []
     const promises = []
     for (const al of filtered) {
