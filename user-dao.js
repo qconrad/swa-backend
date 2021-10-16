@@ -10,24 +10,32 @@ class UserDao {
     return this._getLocations(userSyncJson.token).then(userLocations => this._addOrUpdate(userSyncJson, userLocations))
   }
 
-  async _addOrUpdate(userSyncJson, locations) {
+  async _addOrUpdate(userSyncJson, locationsRef) {
     let promises = []
-    if (locations.empty) {
-      await this._addNewUser(userSyncJson.token, userSyncJson.locations[0][0], userSyncJson.locations[0][1])
-      console.log('Added new user:', userSyncJson.token)
-      await this._deleteTokenFromRealtimeDatabase(userSyncJson.token)
+    let locations = []
+    locationsRef.forEach(location => locations.push(location))
+    for (let locIndex = 0; locIndex < Math.max(locations.length, userSyncJson.locations.length); locIndex++) {
+      if (locIndex > userSyncJson.locations.length - 1) {
+        console.log('Deleted location %d: %s', locIndex, userSyncJson.token)
+        promises.push(locations[locIndex].ref.delete());
+      }
+      else if (userSyncJson.locations[locIndex] == null) continue;
+      else if (locIndex > locations.length - 1) {
+        console.log('Added new location at index %d: %s', locIndex, userSyncJson.token)
+        promises.push(this._addNewLocation(userSyncJson.token, locIndex, userSyncJson.locations[locIndex][0], userSyncJson.locations[locIndex][1]))
+      }
+      else {
+        console.log('Location update at index %d: %s', locIndex, userSyncJson.token)
+        promises.push(this._updateExistingLocation(locations[locIndex], userSyncJson.locations[locIndex][0], userSyncJson.locations[locIndex][1]))
+      }
     }
-    locations.forEach(location => {
-      promises.push(this._updateExistingLocation(location, userSyncJson.locations[0][0], userSyncJson.locations[0][1]))
-      console.log('Location update:', userSyncJson.token)
-    })
     return Promise.all(promises)
   }
 
-  async _addNewUser(token, lat, lon) {
+  async _addNewLocation(token, index, lat, lon) {
     return this.locationsRef.add({
       token: token,
-      index: 0,
+      index: index,
       coordinate: new this.admin.firestore.GeoPoint(lat, lon),
       geohash: geofire.geohashForLocation([lat, lon])
     })
@@ -48,13 +56,15 @@ class UserDao {
     return this.locationsRef.where('token', '==', token).get()
   }
 
-  _deleteLocations(userLocations, token) {
+  async _deleteLocations(userLocations, token) {
     let deleteCount = 0
+    let promises = []
     userLocations.forEach(location => {
       deleteCount++
-      location.ref.delete()
+      promises.push(location.ref.delete())
     })
     console.log('Deleted', deleteCount, 'location(s) for token: ', token)
+    return Promise.all(promises)
   }
 
   async _deleteTokenFromRealtimeDatabase(token) {
