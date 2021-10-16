@@ -19,7 +19,7 @@ class UserDao {
         console.log('Deleted location %d: %s', locIndex, userSyncJson.token)
         promises.push(locations[locIndex].ref.delete());
       }
-      else if (userSyncJson.locations[locIndex] == null) continue;
+      else if (userSyncJson.locations[locIndex] === null) continue;
       else if (locIndex > locations.length - 1) {
         console.log('Added new location at index %d: %s', locIndex, userSyncJson.token)
         promises.push(this._addNewLocation(userSyncJson.token, locIndex, userSyncJson.locations[locIndex][0], userSyncJson.locations[locIndex][1]))
@@ -53,7 +53,7 @@ class UserDao {
   }
 
   async _getLocations(token) {
-    return this.locationsRef.where('token', '==', token).get()
+    return this.locationsRef.where('token', '==', token).orderBy('index').get();
   }
 
   async _deleteLocations(userLocations, token) {
