@@ -1,6 +1,6 @@
 const MAX_LOCATIONS = 10;
 
-class RequestValidator {
+class UserSyncValidator {
   static validate(req, res) {
     if (this._tooManyLocations(req.body.locations)) {
       res.status(400).send('Too many locations')
@@ -15,4 +15,4 @@ class RequestValidator {
 
 }
 
-module.exports = RequestValidator;
+module.exports = UserSyncValidator;
