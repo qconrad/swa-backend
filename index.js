@@ -11,11 +11,14 @@ const AlertLogger = require('./alert-logger');
 const MessageGenerator = require('./message-generator')
 const MessageSplitter = require('./message-splitter')
 const NestedCancelRemover = require('./nested-cancellation-remover')
+const RequestValidator = require('./request-validator')
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
   databaseURL: "https://severe-weather-alerts.firebaseio.com"
 });
+
+const MAX_LOCATIONS = 10;
 
 // In the process of switching to firestore, realtime database will be removed later
 const rtDb = admin.database();
@@ -586,13 +589,11 @@ const db = admin.firestore();
 // Called when user makes request to sync their location(s)
 // Validates request and updates database
 exports.usersync = functions.https.onRequest((req, res) => {
-  if (validRequest(req.body)) {
-    new UserDao(admin).addToDatabase(req.body)
-      .then(() => { return res.status(200).send() })
-      .catch(() => { return res.status(500).send() })
-  }
-  else return res.status(400).send()
-})
+  if (!RequestValidator.validate(req, res)) return;
+  new UserDao(admin).addToDatabase(req.body)
+    .then(() => { return res.status(200).send() })
+    .catch(() => { return res.status(500).send() })
+});
 
 exports.feedback = functions.https.onRequest((req, res) => {
   let data = req.body
@@ -600,10 +601,6 @@ exports.feedback = functions.https.onRequest((req, res) => {
   db.collection("feedback").add(data).then(() => { return res.status(200).send()})
   .catch(() => res.status(500).send() )
 })
-
-function validRequest(body) {
-  return true // TODO
-}
 
 // Send new alerts to affected users every minute
 exports.alertssync = functions.pubsub.schedule('* * * * *') .onRun(() => syncAlerts())
