@@ -98,3 +98,15 @@ test('large description over 4KB, id to fetch manually still exists', () => {
   let messageGenerator = new MessageGenerator(input)
   expect(messageGenerator.getMessages()[0].data.id).toBe("urn:oid:2.49.0.1.840.0.8ba0cff30450afa127c317fe6f032f835c575b84.001.1")
 });
+
+test('Location index provided for user, message contains location index', () => {
+  let input = [{alert: zoneAlert, users: [{token: "test", index: 0}]}]
+  let messageGenerator = new MessageGenerator(input)
+  expect(messageGenerator.getMessages()[0].data.locationIndex).toBe(0)
+});
+
+test('Different location index provided for user, message contains location index', () => {
+  let input = [{alert: zoneAlert, users: [{token: "test", index: 1}]}]
+  let messageGenerator = new MessageGenerator(input)
+  expect(messageGenerator.getMessages()[0].data.locationIndex).toBe(1)
+});

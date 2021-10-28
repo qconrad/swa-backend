@@ -12,6 +12,7 @@ class MessageGenerator {
       for (const user of alertMap.users) {
         let message = { android: { priority: "high" }, token: user.token, data: dataPayload }
         if (JSON.stringify(message).length > 4000) message.data = { fetchManually: "true", id: dataPayload.id }
+        message.data.locationIndex = user.index
         messages.push(message)
       }
     }
