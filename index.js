@@ -12,6 +12,7 @@ const MessageGenerator = require('./message-generator')
 const MessageSplitter = require('./message-splitter')
 const NestedCancelRemover = require('./nested-cancellation-remover')
 const UserSyncValidator = require('./user-sync-validator')
+const DuplicateLocationBugFixer = require('./duplicate-location-bug-fixer')
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -587,6 +588,7 @@ const db = admin.firestore();
 // Called when user makes request to sync their location(s)
 // Validates request and updates database
 exports.usersync = functions.https.onRequest((req, res) => {
+  req.body.locations = new DuplicateLocationBugFixer(req.body.locations).fix()
   if (!UserSyncValidator.validate(req, res)) return;
   new UserDao(admin).addToDatabase(req.body)
     .then(() => { return res.status(200).send() })
