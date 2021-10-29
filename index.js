@@ -28,27 +28,26 @@ let users;         // Users pulled from database
 let messages = []; // List of messages to send
 
 // Fetch, parse, and send alerts every minute
-exports.alertsupdate = functions.pubsub.schedule('* * * * *')
-  .onRun(() => {
-    return new Promise(async(resolve) => {
-      if (!rtLastModified) await get_last_parse();
-      fetch_data().then(async data => {
-        messages = []; // Global variables cached by firebase, clear this out
-        await get_users();
-        await parse(data);
-        let finishPromises = []; // Send and set last parse asynchronously
-        if (messages.length > 0) finishPromises.push(send_messages());
-        finishPromises.push(set_last_parse());
-        await Promise.all(finishPromises);
-        console.log("Finished up successfully");
-        resolve();
-        return null;
-      }).catch(err => {
-        console.log(err.message);
-        resolve();
-      })
-    });
-});
+exports.alertsupdate = functions.pubsub.schedule('* * * * *').onRun(() => alertsUpdate());
+
+async function alertsUpdate() {
+  console.log("Starting alerts update")
+  if (!rtLastModified) await get_last_parse();
+  return fetch_data().then(data => parse_and_send(data))
+  .catch(err => console.log(err))
+  .finally(() => console.log("Finished alerts update"))
+}
+
+async function parse_and_send(data) {
+  let promises = []
+  messages = [] // Global variables cached by firebase, clear this out
+  await get_users()
+  await parse(data)
+  if (messages.length > 0)
+    promises.push(send_messages())
+  promises.push(set_last_parse())
+  return Promise.all(promises)
+}
 
 // Get last parse information from database, store in global variables
 function get_last_parse() {
