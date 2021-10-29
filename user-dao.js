@@ -22,6 +22,7 @@ class UserDao {
       else if (userSyncJson.locations[locIndex] === null) continue;
       else if (locIndex > locations.length - 1) {
         console.log('Added new location at index %d: %s', locIndex, userSyncJson.token)
+        promises.push(this._deleteTokenFromRealtimeDatabase(userSyncJson.token))
         promises.push(this._addNewLocation(userSyncJson.token, locIndex, userSyncJson.locations[locIndex][0], userSyncJson.locations[locIndex][1]))
       }
       else {
