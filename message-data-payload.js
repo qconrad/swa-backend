@@ -3,6 +3,13 @@ class MessageDataPayload {
     this.alert = alert
   }
 
+  _getSenderCode(props) {
+    if (props.parameters.PIL)
+      return props.parameters.PIL[0].slice(0, 3)
+     else
+      return props.parameters.WMOidentifier[0].slice(8, 11)
+  }
+
   get() {
     let props = this.alert.properties
     let data = {}
@@ -18,7 +25,7 @@ class MessageDataPayload {
     if (props.ends) data.ends = props.ends
     if (props.senderName) data.senderName = props.senderName
     if (props.parameters.eventMotionDescription) data.motionDescription = props.parameters.eventMotionDescription[0]
-    data.senderCode = props.parameters.PIL[0].slice(0, 3)
+    data.senderCode = this._getSenderCode(props)
     if (this.alert.geometry) {
       data.polygonType = this.alert.geometry.type
       data.polygon = JSON.stringify(this.alert.geometry.coordinates)

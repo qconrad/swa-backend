@@ -213,3 +213,10 @@ test('event motion description', () => {
   let messageData = new MessageDataPayload(testAlert)
   expect(messageData.get().motionDescription).toBe("2021-04-12T01:40:00-00:00...storm...230DEG...10KT...39.68,-76.17")
 });
+
+let noPIL = {"id":"https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.f2b9e8dae4814a9f6d19c82d7bb9e78ddf95b8ed.003.2","type":"Feature","geometry":null,"properties":{"@id":"https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.f2b9e8dae4814a9f6d19c82d7bb9e78ddf95b8ed.003.2","@type":"wx:Alert","id":"urn:oid:2.49.0.1.840.0.f2b9e8dae4814a9f6d19c82d7bb9e78ddf95b8ed.003.2","areaDesc":"Southeast Suffolk","geocode":{"SAME":["036103"],"UGC":["NYZ081"]},"affectedZones":["https://api.weather.gov/zones/forecast/NYZ081"],"references":[],"sent":"2021-11-03T15:23:00-04:00","effective":"2021-11-03T15:23:00-04:00","onset":"2021-11-04T00:00:00-04:00","expires":"2021-11-04T05:00:00-04:00","ends":"2021-11-04T09:00:00-04:00","status":"Actual","messageType":"Alert","category":"Met","severity":"Minor","certainty":"Likely","urgency":"Expected","event":"Frost Advisory","sender":"w-nws.webmaster@noaa.gov","senderName":"NWS Upton NY","headline":"Frost Advisory issued November 3 at 3:23PM EDT until November 4 at 9:00AM EDT by NWS Upton NY","description":"* WHAT...Temperatures as low as the upper 20s to lower 30s will\nresult in frost formation.\n\n* WHERE...Southeast Suffolk County.\n\n* WHEN...From midnight tonight to 9 AM EDT Thursday.\n\n* IMPACTS...Frost could kill sensitive outdoor vegetation if\nleft uncovered.","instruction":"Take steps now to protect tender plants from the cold.","response":"Prepare","parameters":{"AWIPSidentifier":["NPWOKX"],"WMOidentifier":["WWUS71 KOKX 031923"],"NWSheadline":["FROST ADVISORY IN EFFECT FROM MIDNIGHT TONIGHT TO 9 AM EDT THURSDAY"],"BLOCKCHANNEL":["EAS","NWEM","CMAS"],"VTEC":["/O.EXB.KOKX.FR.Y.0002.211104T0400Z-211104T1300Z/"],"eventEndingTime":["2021-11-04T13:00:00+00:00"]}}}
+
+test('alert without PIL field provided, sender code correct', () => {
+  let messageData = new MessageDataPayload(noPIL)
+  expect(messageData.get().senderCode).toBe("OKX")
+});
