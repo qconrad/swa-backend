@@ -110,3 +110,10 @@ test('Different location index provided for user, message contains location inde
   let messageGenerator = new MessageGenerator(input)
   expect(messageGenerator.getMessages()[0].data.locationIndex).toBe("1")
 });
+
+test('Multiple users, index not overwritten by second user', () => {
+  testAlert.properties.description = "This description is not long enough to require manually fetching"
+  let input = [{alert: testAlert, users: [{token: "test", index: 1},{token: "test2", index: 0}]}]
+  let messageGenerator = new MessageGenerator(input)
+  expect(messageGenerator.getMessages()[0].data.locationIndex).toBe("1")
+})

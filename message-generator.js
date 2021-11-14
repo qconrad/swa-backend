@@ -6,10 +6,10 @@ class MessageGenerator {
   }
 
   getMessages() {
-    let messages = []
+    const messages = []
     for (const alertMap of this.alert_user_map) {
-      let dataPayload = new MessageDataPayload(alertMap.alert).get()
       for (const user of alertMap.users) {
+        let dataPayload = new MessageDataPayload(alertMap.alert).get()
         let message = { android: { priority: "high" }, token: user.token, data: dataPayload }
         if (JSON.stringify(message).length > 4000) message.data = { fetchManually: "true", id: dataPayload.id }
         message.data.locationIndex = user.index + ""
