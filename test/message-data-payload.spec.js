@@ -220,3 +220,9 @@ test('alert without PIL field provided, sender code correct', () => {
   let messageData = new MessageDataPayload(noPIL)
   expect(messageData.get().senderCode).toBe("OKX")
 });
+
+test('description null, description undefined', () => {
+  testAlert.properties.description = null
+  let messageData = new MessageDataPayload(testAlert)
+  expect(messageData.get().description).toBe(undefined)
+});
